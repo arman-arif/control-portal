@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Installs the Keel agent and links this server to the panel.
+# Usage: curl -fsSL {{.PanelURL}}/install.sh | sudo bash -s -- <install-token>
+set -euo pipefail
+
+PANEL_URL='{{.PanelURL}}'
+TOKEN="${1:-}"
+
+fail() { echo "keel: $*" >&2; exit 1; }
+
+[ -n "$TOKEN" ] || fail "missing install token. Copy the full command from the panel."
+[ "$(id -u)" -eq 0 ] || fail "please run as root (use sudo)."
+command -v systemctl >/dev/null 2>&1 || fail "systemd is required."
+command -v curl >/dev/null 2>&1 || fail "curl is required."
+
+case "$(uname -m)" in
+  x86_64) ARCH=amd64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+  *) fail "unsupported CPU architecture $(uname -m)." ;;
+esac
+
+echo "keel: downloading agent for linux/$ARCH"
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+curl -fsSL "$PANEL_URL/downloads/keel-agent-linux-$ARCH" -o "$TMP"
+install -m 0755 "$TMP" /usr/local/bin/keel-agent
+
+echo "keel: linking this server to $PANEL_URL"
+/usr/local/bin/keel-agent register --panel "$PANEL_URL" --token "$TOKEN"
+
+cat > /etc/systemd/system/keel-agent.service <<'UNIT'
+[Unit]
+Description=Keel agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/keel-agent run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now keel-agent
+echo "keel: done. This server will appear as online in the panel within a few seconds."
