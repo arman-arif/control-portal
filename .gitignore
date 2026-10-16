@@ -1,1 +1,4 @@
 .claude/work/
+/dist/
+web/node_modules/
+web/dist/
