@@ -1,11 +1,11 @@
-# Control Portal: Product Blueprint
+# Keel: Product Blueprint
 
-Status: draft for review
+Status: agreed
 Last updated: 2026-10-16
 
 ## 1. What we are building
 
-Control Portal is a web panel for running servers and the websites on them. It brings together three products people already know:
+Keel is a web panel for running servers and the websites on them. It brings together three products people already know:
 
 | Inspiration | What we take from it |
 |---|---|
@@ -118,15 +118,15 @@ Server tools:
 control-portal/
 ├── panel/     Go: API server, database migrations, job dispatch
 ├── agent/     Go: server agent, installer script
-├── web/       React + Tailwind (Vite) front end
+├── web/       React (plain JavaScript) + Tailwind (Vite) front end
 ├── docs/      This spec and later design notes
 └── README.md
 ```
 
 Panel and agent share message types through a small Go package so the protocol stays in sync.
 
-## 7. Open questions
+## 7. Decisions
 
-1. **TypeScript or plain JavaScript** for the React app? Default: TypeScript.
-2. **Hosting the panel**: will it be a hosted service you sell (like Ploi/Cloudways), self-hosted by each user, or both? Default: design for self-hosted first, keep multi-tenant possible.
-3. **Product name**: keep "Control Portal" or pick another?
+1. **Web app language**: plain JavaScript, no TypeScript.
+2. **Hosting the panel**: designed for self-hosting first; keep multi-tenant (offering it as a hosted service) possible later.
+3. **Product name**: **Keel**. A keel is the backbone that keeps a ship steady. Binaries and services use the `keel-` prefix (`keel-panel`, `keel-agent`). The repository keeps its current name for now.
