@@ -60,6 +60,20 @@ curl -fsSL https://panel.example.com/install.sh | sudo bash -s -- <token>
 
 The token works once and expires after an hour. The agent connects out to the panel over a WebSocket, so the server does not need any extra inbound port.
 
+## Local test servers (LXC)
+
+`scripts/lxc-dev.sh` runs PostgreSQL and two stand-in VPSes (Ubuntu 24.04 and 22.04, with systemd) as unprivileged LXC containers, so you can link real servers without a cloud account. The script header lists the one-time LXC setup.
+
+```sh
+scripts/lxc-dev.sh up                    # create/start keel-db, keel-vps-noble, keel-vps-jammy
+eval "$(scripts/lxc-dev.sh env)"         # KEEL_DATABASE_URL, KEEL_TEST_DATABASE_URL, KEEL_PUBLIC_URL
+./dist/keel-panel
+scripts/lxc-dev.sh link keel-vps-noble '<install command from Add server>'
+scripts/lxc-dev.sh reset                 # destroy the VPS containers (keeps keel-db)
+```
+
+Inside containers, CPU, load and disk show the host's figures. Any local or Docker PostgreSQL works just as well for the panel.
+
 ## Tests
 
 ```sh
