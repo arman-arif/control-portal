@@ -15,6 +15,7 @@ const (
 	TypeServices  = "services"   // agent -> panel, periodically and after a job
 	TypeJob       = "job"        // panel -> agent
 	TypeJobResult = "job_result" // agent -> panel, reply to a job with the same ID
+	TypeJobLog    = "job_log"    // agent -> panel, output of a running queued job
 )
 
 // Job actions the agent accepts. The agent rejects anything else.
@@ -22,6 +23,10 @@ const (
 	ActionServiceStart   = "service.start"
 	ActionServiceStop    = "service.stop"
 	ActionServiceRestart = "service.restart"
+
+	// Queued jobs: the panel stores them, runs one at a time per server, and
+	// the agent streams their output as job_log messages.
+	ActionPackagesRefresh = "packages.refresh"
 )
 
 // Envelope wraps every message on the wire.
@@ -69,8 +74,9 @@ type Service struct {
 }
 
 type Job struct {
-	Action  string `json:"action"`
-	Service string `json:"service,omitempty"`
+	Action  string          `json:"action"`
+	Service string          `json:"service,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type JobResult struct {
@@ -78,6 +84,18 @@ type JobResult struct {
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
+
+// JobLog carries a chunk of a queued job's output, at most MaxLogChunk bytes
+// of UTF-8 text.
+type JobLog struct {
+	Text string `json:"text"`
+}
+
+const MaxLogChunk = 32 << 10
+
+// QueuedJobPrefix starts the envelope ID of every queued job, followed by the
+// panel's job ID. Synchronous jobs such as service actions use other IDs.
+const QueuedJobPrefix = "j"
 
 var managedServices = regexp.MustCompile(`^(nginx|apache2|mysql|mariadb|postgresql|redis-server|memcached|php[0-9]\.[0-9]-fpm|supervisor|cron|ssh|ufw|fail2ban|docker)$`)
 
@@ -92,6 +110,16 @@ func IsManagedService(name string) bool {
 func IsServiceAction(action string) bool {
 	switch action {
 	case ActionServiceStart, ActionServiceStop, ActionServiceRestart:
+		return true
+	}
+	return false
+}
+
+// IsQueuedAction reports whether action runs as a queued job with streamed
+// output.
+func IsQueuedAction(action string) bool {
+	switch action {
+	case ActionPackagesRefresh:
 		return true
 	}
 	return false

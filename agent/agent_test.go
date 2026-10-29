@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
+	"os/exec"
+	"strings"
+	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/arman-arif/control-portal/protocol"
 )
@@ -94,5 +99,56 @@ func TestWSURL(t *testing.T) {
 		if got := wsURL(in); got != want {
 			t.Errorf("wsURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCompleteUTF8(t *testing.T) {
+	s := []byte("aé€") // 1 + 2 + 3 bytes
+	for n, want := range []int{0, 1, 1, 3, 3, 3, 6} {
+		if got := completeUTF8(s[:n]); got != want {
+			t.Errorf("completeUTF8(%q) = %d, want %d", s[:n], got, want)
+		}
+	}
+}
+
+func TestLogWriterChunks(t *testing.T) {
+	var chunks []string
+	w := newLogWriter(func(s string) { chunks = append(chunks, s) })
+	// Large output with a multi-byte character straddling the chunk limit.
+	in := strings.Repeat("x", protocol.MaxLogChunk-1) + "€" + strings.Repeat("y", 100)
+	w.Write([]byte(in[:protocol.MaxLogChunk]))
+	w.Write([]byte(in[protocol.MaxLogChunk:]))
+	w.Close()
+	if got := strings.Join(chunks, ""); got != in {
+		t.Fatalf("output changed: got %d bytes, want %d", len(got), len(in))
+	}
+	for _, c := range chunks {
+		if len(c) > protocol.MaxLogChunk || !utf8.ValidString(c) {
+			t.Fatalf("bad chunk: %d bytes, valid=%v", len(c), utf8.ValidString(c))
+		}
+	}
+}
+
+func TestRunStreamed(t *testing.T) {
+	var mu sync.Mutex
+	var logs strings.Builder
+	send := func(typ, id string, v any) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if l, ok := v.(protocol.JobLog); ok && typ == protocol.TypeJobLog && id == "j1" {
+			logs.WriteString(l.Text)
+		}
+		return nil
+	}
+	res := runStreamed(context.Background(), send, "j1", exec.Command("sh", "-c", "echo out; echo err >&2"))
+	if !res.OK || !strings.Contains(logs.String(), "out\n") || !strings.Contains(logs.String(), "err\n") {
+		t.Fatalf("res=%+v logs=%q", res, logs.String())
+	}
+	res = runStreamed(context.Background(), send, "j1", exec.Command("sh", "-c", "exit 3"))
+	if res.OK || res.Error != "command exited with status 3" {
+		t.Fatalf("failing command: %+v", res)
+	}
+	if res := runQueuedJob(context.Background(), send, "j1", protocol.Job{Action: "shell.exec"}); res.OK {
+		t.Fatal("unknown action must be rejected")
 	}
 }

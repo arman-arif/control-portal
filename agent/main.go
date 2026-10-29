@@ -258,7 +258,12 @@ func runSession(ctx context.Context, cfg config) error {
 		}
 		go func(id string, job protocol.Job) {
 			log.Printf("job %s: %s %s", id, job.Action, job.Service)
-			res := runServiceJob(ctx, job)
+			var res protocol.JobResult
+			if protocol.IsQueuedAction(job.Action) {
+				res = runQueuedJob(ctx, send, id, job)
+			} else {
+				res = runServiceJob(ctx, job)
+			}
 			if err := send(protocol.TypeJobResult, id, res); err != nil {
 				log.Printf("sending job result: %v", err)
 			}

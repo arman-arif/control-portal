@@ -4,6 +4,7 @@ import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { Button, Card, ErrorNote, Meter, Sparkline, Spinner, StatusDot } from '../components/ui.jsx'
 import InstallSteps from '../components/InstallSteps.jsx'
+import { JobsCard } from '../components/Jobs.jsx'
 import { formatBytes, formatUptime, percent, timeAgo } from '../format.js'
 
 export default function ServerDetail() {
@@ -84,6 +85,7 @@ export default function ServerDetail() {
             </Card>
           </div>
           <Services serverId={server.id} online={server.online} services={stats?.services ?? []} onChange={refreshStats} />
+          <JobsCard serverId={server.id} online={server.online} />
         </>
       )}
     </div>

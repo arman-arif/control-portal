@@ -65,15 +65,19 @@ func (a *API) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn.SetReadLimit(1 << 20)
-	agent := a.hub.Attach(serverID, conn)
-	defer a.hub.Detach(agent)
-	defer conn.CloseNow()
-	ip := a.clientIP(r)
-	log.Printf("agent for server %d connected from %s", serverID, ip)
-
 	// The request context ends when the handler returns, so use a detached
 	// one for database writes made while the socket is open.
 	ctx := context.WithoutCancel(r.Context())
+
+	agent := a.hub.Attach(serverID, conn)
+	defer func() {
+		a.hub.Detach(agent)
+		a.jobs.Disconnected(ctx, agent)
+	}()
+	defer conn.CloseNow()
+	ip := a.clientIP(r)
+	log.Printf("agent for server %d connected from %s", serverID, ip)
+	a.jobs.Connected(ctx, serverID)
 	var lastTouch time.Time
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, agentIdleTimeout)
@@ -130,7 +134,15 @@ func (a *API) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(env.Data, &res) != nil {
 				continue
 			}
-			agent.HandleJobResult(env.ID, res)
+			if !a.jobs.HandleResult(ctx, agent, env.ID, res) {
+				agent.HandleJobResult(env.ID, res)
+			}
+		case protocol.TypeJobLog:
+			var l protocol.JobLog
+			if json.Unmarshal(env.Data, &l) != nil || len(l.Text) > protocol.MaxLogChunk {
+				continue
+			}
+			a.jobs.HandleLog(ctx, agent, env.ID, l.Text)
 		}
 	}
 }

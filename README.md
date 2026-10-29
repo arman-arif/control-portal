@@ -2,7 +2,7 @@
 
 Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cloudways-style managed hosting and aaPanel-style server tools in one place. See [docs/SPEC.md](docs/SPEC.md) for the full blueprint.
 
-## What works today (milestone 2)
+## What works today (milestone 2, milestone 3 in progress)
 
 - Create the owner account and log in
 - Add a server and get a one-line install command
@@ -10,11 +10,12 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Server list with online/offline status
 - Live CPU, memory, disk, load and uptime for each server
 - Start, stop and restart common services (nginx, MySQL, PHP-FPM, Redis and others)
+- Jobs: longer server tasks are queued, run one at a time per server, and show their output live with a history (first job: refresh package lists)
 
 ## Layout
 
 ```
-panel/     Go: API server, database migrations, agent hub
+panel/     Go: API server, database migrations, agent hub, job runner
 agent/     Go: the agent that runs on each managed server
 protocol/  Go: messages shared by the panel and the agent
 web/       React (plain JavaScript) + Tailwind front end
