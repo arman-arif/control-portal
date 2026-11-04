@@ -19,6 +19,11 @@ var queuedTimeouts = map[string]time.Duration{
 	protocol.ActionSiteUpdate:      10 * time.Minute,
 	protocol.ActionSiteDelete:      10 * time.Minute,
 	protocol.ActionSiteSSLIssue:    10 * time.Minute,
+	protocol.ActionDBCreate:        5 * time.Minute,
+	protocol.ActionDBDrop:          30 * time.Minute, // large databases take a while
+	protocol.ActionDBUserCreate:    5 * time.Minute,
+	protocol.ActionDBUserGrants:    5 * time.Minute,
+	protocol.ActionDBUserDrop:      5 * time.Minute,
 }
 
 type sendFunc func(typ, id string, v any) error
@@ -40,6 +45,8 @@ func runQueuedJob(ctx context.Context, send sendFunc, id string, job protocol.Jo
 		return runStackInstall(ctx, send, id, job.Params)
 	case protocol.ActionSiteCreate, protocol.ActionSiteUpdate, protocol.ActionSiteDelete, protocol.ActionSiteSSLIssue:
 		return runSiteJob(ctx, send, id, job)
+	case protocol.ActionDBCreate, protocol.ActionDBDrop, protocol.ActionDBUserCreate, protocol.ActionDBUserGrants, protocol.ActionDBUserDrop:
+		return runDatabaseJob(ctx, send, id, job)
 	}
 	return protocol.JobResult{Error: "unsupported action " + job.Action}
 }

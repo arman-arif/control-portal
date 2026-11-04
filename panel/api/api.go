@@ -15,6 +15,7 @@ import (
 
 	"github.com/arman-arif/control-portal/panel/hub"
 	"github.com/arman-arif/control-portal/panel/jobs"
+	"github.com/arman-arif/control-portal/panel/secrets"
 	"github.com/arman-arif/control-portal/panel/store"
 )
 
@@ -26,6 +27,7 @@ type Config struct {
 	TrustProxy     bool   // take the client IP from X-Forwarded-For
 	TLSFingerprint string // validated fingerprint new agents pin; empty for none
 	ACMEServer     string // ACME directory for site certificates; empty for Let's Encrypt
+	Secrets        *secrets.Box
 }
 
 type API struct {
@@ -38,7 +40,11 @@ type API struct {
 
 func New(cfg Config, st *store.Store, h *hub.Hub) *API {
 	a := &API{cfg: cfg, store: st, hub: h, jobs: jobs.New(st, h), logins: newRateLimiter(5, loginWindow)}
-	a.jobs.OnFinish = a.jobFinished
+	a.jobs.OnFinish = func(ctx context.Context, job store.Job) {
+		a.jobFinished(ctx, job)
+		a.databaseJobFinished(ctx, job)
+	}
+	a.jobs.Prepare = a.prepareJob
 	return a
 }
 
@@ -72,6 +78,14 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("PATCH /api/sites/{id}", a.requireUser(a.handleUpdateSite))
 	mux.Handle("DELETE /api/sites/{id}", a.requireUser(a.handleDeleteSite))
 	mux.Handle("POST /api/sites/{id}/ssl", a.requireUser(a.handleIssueSSL))
+	mux.Handle("GET /api/servers/{id}/databases", a.requireUser(a.handleListDatabases))
+	mux.Handle("POST /api/servers/{id}/databases", a.requireUser(a.handleCreateDatabase))
+	mux.Handle("DELETE /api/databases/{id}", a.requireUser(a.handleDeleteDatabase))
+	mux.Handle("POST /api/servers/{id}/database-users", a.requireUser(a.handleCreateDBUser))
+	mux.Handle("PUT /api/database-users/{id}/databases", a.requireUser(a.handleSetDBUserDatabases))
+	mux.Handle("GET /api/database-users/{id}/password", a.requireUser(a.handleRevealDBPassword))
+	mux.Handle("POST /api/database-users/{id}/password", a.requireUser(a.handleResetDBPassword))
+	mux.Handle("DELETE /api/database-users/{id}", a.requireUser(a.handleDeleteDBUser))
 	mux.Handle("GET /api/servers/{id}/jobs", a.requireUser(a.handleListJobs))
 	mux.Handle("GET /api/jobs/{id}", a.requireUser(a.handleGetJob))
 

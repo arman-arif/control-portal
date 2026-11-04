@@ -148,7 +148,7 @@ func (a *API) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	job, err := a.jobs.Enqueue(r.Context(), userID, sv.ID, &site.ID, protocol.ActionSiteCreate, a.siteParams(site))
+	job, err := a.jobs.Enqueue(r.Context(), userID, sv.ID, store.SiteRef(site.ID), protocol.ActionSiteCreate, a.siteParams(site))
 	if err != nil {
 		internalError(w, err)
 		return
@@ -235,7 +235,7 @@ func (a *API) handleUpdateSite(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, &site.ID, protocol.ActionSiteUpdate, a.siteParams(site))
+	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, store.SiteRef(site.ID), protocol.ActionSiteUpdate, a.siteParams(site))
 	if err != nil {
 		internalError(w, err)
 		return
@@ -258,7 +258,7 @@ func (a *API) handleDeleteSite(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, &site.ID, protocol.ActionSiteDelete, p)
+	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, store.SiteRef(site.ID), protocol.ActionSiteDelete, p)
 	if err != nil {
 		internalError(w, err)
 		return
@@ -303,7 +303,7 @@ func (a *API) handleIssueSSL(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, &site.ID, protocol.ActionSiteSSLIssue, p)
+	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, store.SiteRef(site.ID), protocol.ActionSiteSSLIssue, p)
 	if err != nil {
 		internalError(w, err)
 		return

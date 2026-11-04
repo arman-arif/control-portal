@@ -26,7 +26,16 @@ const siteActionLabels = {
   'site.ssl.issue': 'Get certificate for',
 }
 
+const dbActionLabels = {
+  'db.create': 'Create database',
+  'db.drop': 'Drop database',
+  'db.user.create': 'Set up database user',
+  'db.user.grants': 'Change access of database user',
+  'db.user.drop': 'Delete database user',
+}
+
 export function jobLabel(action, params) {
+  if (dbActionLabels[action]) return `${dbActionLabels[action]} ${params?.name ?? ''}`.trim()
   if (siteActionLabels[action]) return `${siteActionLabels[action]} ${params?.domain ?? ''}`.trim()
   if (action === 'stack.install' && params?.component) {
     const name = componentNames[params.component] || params.component

@@ -65,19 +65,26 @@ func main() {
 // checkSecretKey makes sure the panel has a usable key before it starts, so a
 // bad setup shows at startup rather than when a secret is first needed.
 func checkSecretKey() error {
+	_, err := loadSecretKey()
+	return err
+}
+
+func loadSecretKey() (*secrets.Box, error) {
 	help := "run `keel-panel init` to create a key, then load the file it writes"
 	key := os.Getenv(secretKeyVar)
 	if key == "" {
-		return fmt.Errorf("%s is required: %s", secretKeyVar, help)
+		return nil, fmt.Errorf("%s is required: %s", secretKeyVar, help)
 	}
-	if _, err := secrets.New(key); err != nil {
-		return fmt.Errorf("%s is not usable (%v): %s", secretKeyVar, err, help)
+	box, err := secrets.New(key)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not usable (%v): %s", secretKeyVar, err, help)
 	}
-	return nil
+	return box, nil
 }
 
 func serve() {
-	if err := checkSecretKey(); err != nil {
+	box, err := loadSecretKey()
+	if err != nil {
 		log.Fatal(err)
 	}
 	dbURL := os.Getenv("KEEL_DATABASE_URL")
@@ -111,6 +118,7 @@ func serve() {
 		TrustProxy:     os.Getenv("KEEL_TRUST_PROXY") == "true",
 		TLSFingerprint: tlsFingerprint,
 		ACMEServer:     acmeServer,
+		Secrets:        box,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

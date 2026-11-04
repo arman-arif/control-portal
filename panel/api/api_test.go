@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/arman-arif/control-portal/panel/hub"
+	"github.com/arman-arif/control-portal/panel/secrets"
 	"github.com/arman-arif/control-portal/panel/store"
 	"github.com/arman-arif/control-portal/protocol"
 	"github.com/coder/websocket"
@@ -56,7 +57,11 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 
-	a := New(Config{PublicURL: "http://panel.test", WebDir: t.TempDir(), AgentDir: t.TempDir()}, st, hub.New())
+	box, err := secrets.New(secrets.GenerateKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(Config{PublicURL: "http://panel.test", WebDir: t.TempDir(), AgentDir: t.TempDir(), Secrets: box}, st, hub.New())
 	srv := httptest.NewServer(a.Handler())
 	t.Cleanup(srv.Close)
 	return srv

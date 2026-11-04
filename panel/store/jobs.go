@@ -21,6 +21,8 @@ type Job struct {
 	ID         int64           `json:"id"`
 	ServerID   int64           `json:"server_id"`
 	SiteID     *int64          `json:"site_id"`
+	DatabaseID *int64          `json:"database_id"`
+	DBUserID   *int64          `json:"database_user_id"`
 	Action     string          `json:"action"`
 	Params     json.RawMessage `json:"params"`
 	Status     string          `json:"status"`
@@ -30,24 +32,34 @@ type Job struct {
 	FinishedAt *time.Time      `json:"finished_at"`
 }
 
-const jobCols = `id, server_id, site_id, action, params, status, error, created_at, started_at, finished_at`
+const jobCols = `id, server_id, site_id, database_id, database_user_id, action, params, status, error, created_at, started_at, finished_at`
 
 func scanJob(row pgx.Row) (Job, error) {
 	var j Job
-	err := row.Scan(&j.ID, &j.ServerID, &j.SiteID, &j.Action, &j.Params, &j.Status, &j.Error, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
+	err := row.Scan(&j.ID, &j.ServerID, &j.SiteID, &j.DatabaseID, &j.DBUserID, &j.Action, &j.Params, &j.Status, &j.Error, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j, ErrNotFound
 	}
 	return j, err
 }
 
-// CreateJob queues a job. siteID is nil for jobs that aren't about a site.
-func (s *Store) CreateJob(ctx context.Context, userID, serverID int64, siteID *int64, action string, params json.RawMessage) (Job, error) {
+// JobRef names what a job is about, if anything besides its server.
+type JobRef struct {
+	SiteID, DatabaseID, DBUserID *int64
+}
+
+func SiteRef(id int64) JobRef     { return JobRef{SiteID: &id} }
+func DatabaseRef(id int64) JobRef { return JobRef{DatabaseID: &id} }
+func DBUserRef(id int64) JobRef   { return JobRef{DBUserID: &id} }
+
+// CreateJob queues a job. Params must not hold secrets: they are kept as job
+// history. The job runner's Prepare hook adds secrets when the job is sent.
+func (s *Store) CreateJob(ctx context.Context, userID, serverID int64, ref JobRef, action string, params json.RawMessage) (Job, error) {
 	if params == nil {
 		params = json.RawMessage(`{}`)
 	}
-	return scanJob(s.db.QueryRow(ctx, `INSERT INTO jobs(user_id, server_id, site_id, action, params)
-		VALUES ($1, $2, $3, $4, $5) RETURNING `+jobCols, userID, serverID, siteID, action, params))
+	return scanJob(s.db.QueryRow(ctx, `INSERT INTO jobs(user_id, server_id, site_id, database_id, database_user_id, action, params)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+jobCols, userID, serverID, ref.SiteID, ref.DatabaseID, ref.DBUserID, action, params))
 }
 
 // ClaimNextJob marks the oldest queued job of a server as running and returns

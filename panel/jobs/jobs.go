@@ -35,6 +35,9 @@ type Runner struct {
 	// OnFinish, if set before the runner is used, is called with each job
 	// once its outcome is stored.
 	OnFinish func(ctx context.Context, job store.Job)
+	// Prepare, if set, returns the params to send for a job, for adding
+	// secrets that must not be stored with the job. An error fails the job.
+	Prepare func(ctx context.Context, job store.Job) (json.RawMessage, error)
 
 	// mu serializes dispatch so each server has at most one running job, and
 	// guards the running map, which is the source of truth for which
@@ -47,9 +50,8 @@ func New(st *store.Store, h *hub.Hub) *Runner {
 	return &Runner{store: st, hub: h, running: map[int64]*running{}}
 }
 
-// Enqueue stores a job and starts it if the server is idle and online. siteID
-// is nil for jobs that aren't about a site.
-func (r *Runner) Enqueue(ctx context.Context, userID, serverID int64, siteID *int64, action string, params any) (store.Job, error) {
+// Enqueue stores a job and starts it if the server is idle and online.
+func (r *Runner) Enqueue(ctx context.Context, userID, serverID int64, ref store.JobRef, action string, params any) (store.Job, error) {
 	var raw json.RawMessage
 	if params != nil {
 		b, err := json.Marshal(params)
@@ -58,7 +60,7 @@ func (r *Runner) Enqueue(ctx context.Context, userID, serverID int64, siteID *in
 		}
 		raw = b
 	}
-	job, err := r.store.CreateJob(ctx, userID, serverID, siteID, action, raw)
+	job, err := r.store.CreateJob(ctx, userID, serverID, ref, action, raw)
 	if err != nil {
 		return job, err
 	}
@@ -181,9 +183,18 @@ func (r *Runner) dispatchLocked(ctx context.Context, serverID int64) {
 		log.Printf("claiming next job for server %d: %v", serverID, err)
 		return
 	}
+	params := job.Params
+	if r.Prepare != nil {
+		if params, err = r.Prepare(ctx, job); err != nil {
+			log.Printf("preparing job %d: %v", job.ID, err)
+			r.finishLocked(ctx, serverID, &running{jobID: job.ID, agent: a}, false, "could not prepare the job: "+err.Error())
+			r.dispatchLocked(ctx, serverID)
+			return
+		}
+	}
 	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	msg := protocol.Job{Action: job.Action, Params: job.Params}
+	msg := protocol.Job{Action: job.Action, Params: params}
 	if err := a.Send(sendCtx, protocol.TypeJob, protocol.QueuedJobPrefix+strconv.FormatInt(job.ID, 10), msg); err != nil {
 		// The connection is going away; Connected will retry on the next one.
 		if err := r.store.RequeueJob(ctx, job.ID); err != nil {
