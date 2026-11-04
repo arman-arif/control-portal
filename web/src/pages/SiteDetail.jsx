@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
+import { useAuth } from '../App.jsx'
 import { Button, Card, ErrorNote, Field, Spinner, StatusDot } from '../components/ui.jsx'
 import { JobLog, JobStatus, jobLabel } from '../components/Jobs.jsx'
 import { SiteStatus, parseNames, sitePending } from '../components/Sites.jsx'
@@ -57,7 +58,7 @@ export default function SiteDetail() {
         <dl className="grid gap-x-6 gap-y-3 px-5 py-4 text-sm sm:grid-cols-[10rem_1fr]">
           <dt className="text-slate-500">Domain</dt>
           <dd>
-            <a href={`http://${site.domain}`} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+            <a href={`${site.ssl ? 'https' : 'http'}://${site.domain}`} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
               {site.domain}
             </a>
             {site.aliases.length > 0 && <span className="text-slate-500"> · {site.aliases.join(', ')}</span>}
@@ -72,6 +73,8 @@ export default function SiteDetail() {
           <dd className="font-mono break-all">{site.root}</dd>
         </dl>
       </Card>
+
+      <SSLCard site={site} inventory={stats?.inventory} onIssued={refresh} />
 
       <SettingsCard key={`${site.php_version}|${site.web_dir}|${site.aliases.join(',')}`} site={site} inventory={stats?.inventory} onSaved={refresh} />
 
@@ -106,6 +109,82 @@ export default function SiteDetail() {
 
       <DeleteCard site={site} onDeleted={refresh} />
     </div>
+  )
+}
+
+function SSLCard({ site, inventory, onIssued }) {
+  const { user } = useAuth()
+  const [email, setEmail] = useState(site.acme_email || user?.email || '')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const cert = site.certificate
+  const names = [site.domain, ...site.aliases]
+  const uncovered = cert ? names.filter((n) => !cert.names.includes(n)) : []
+  const daysLeft = cert ? Math.floor((new Date(cert.not_after) - Date.now()) / 86400000) : null
+  const noCertbot = inventory && !inventory.certbot
+
+  const issue = async (e) => {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await api.issueSSL(site.id, email.trim())
+      onIssued()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (site.ssl) {
+    return (
+      <Card className="px-5 py-4">
+        <h2 className="font-medium">HTTPS</h2>
+        {cert ? (
+          <p className="mt-2 text-sm text-slate-600">
+            Let's Encrypt certificate for {cert.names.join(', ')}, valid until {new Date(cert.not_after).toLocaleDateString()}
+            {daysLeft !== null && ` (${daysLeft} days)`}. Certbot renews it automatically before it expires.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-slate-600">HTTPS is on. The certificate details appear once the server reports them.</p>
+        )}
+        {uncovered.length > 0 && (
+          <p className="mt-2 text-sm text-amber-700">
+            Not covered yet: {uncovered.join(', ')}. Saving the site's settings asks for a new certificate.
+          </p>
+        )}
+        {cert && daysLeft < 14 && <p className="mt-2 text-sm text-red-600">The certificate expires soon. Check that renewal works on the server.</p>}
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <form onSubmit={issue} className="space-y-3 px-5 py-4">
+        <h2 className="font-medium">HTTPS</h2>
+        <p className="text-sm text-slate-600">
+          Get a free Let's Encrypt certificate for {names.join(', ')}. Every name must already point at this server and port 80 must be
+          reachable. Afterwards HTTP redirects to HTTPS, and the certificate renews automatically.
+        </p>
+        {noCertbot && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Install Certbot from the server's Stack tab first.</p>}
+        <div className="max-w-sm">
+          <Field label="Email for expiry notices" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </div>
+        <p className="text-xs text-slate-500">
+          By getting a certificate you agree to the{' '}
+          <a href="https://letsencrypt.org/repository/" target="_blank" rel="noreferrer" className="underline">
+            Let's Encrypt Subscriber Agreement
+          </a>
+          .
+        </p>
+        <ErrorNote>{error}</ErrorNote>
+        <Button type="submit" disabled={busy || noCertbot || sitePending(site.status)}>
+          {busy && <Spinner />}
+          Get certificate
+        </Button>
+      </form>
+    </Card>
   )
 }
 

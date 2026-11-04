@@ -2,7 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"os"
 	"os/exec"
 	"os/user"
@@ -10,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arman-arif/control-portal/protocol"
 )
@@ -17,14 +24,15 @@ import (
 // fakeSystem replaces the agent's system hooks with a temporary root, a user
 // table, and recorded commands.
 type fakeSystem struct {
-	t          *testing.T
-	root       string
-	users      map[string]*user.User
-	commands   []string
-	failNginx  bool
-	failFPM    bool
-	failReload string // service whose reload fails
-	groups     map[string]bool
+	t           *testing.T
+	root        string
+	users       map[string]*user.User
+	commands    []string
+	failNginx   bool
+	failFPM     bool
+	failReload  string // service whose reload fails
+	failCertbot bool
+	groups      map[string]bool
 }
 
 func newFakeSystem(t *testing.T) *fakeSystem {
@@ -70,6 +78,16 @@ func newFakeSystem(t *testing.T) *fakeSystem {
 			delete(f.groups, args[0])
 		case name == "systemctl" && args[0] == "reload-or-restart" && args[1] == f.failReload:
 			return exec.Command("false").Run()
+		case name == "certbot" && args[0] == "certonly":
+			if f.failCertbot {
+				io.WriteString(out, "Challenge failed for domain example.com\n")
+				return exec.Command("false").Run()
+			}
+			name := args[slices.Index(args, "--cert-name")+1]
+			os.MkdirAll(f.root+"/etc/letsencrypt/live/"+name, 0o755)
+			os.MkdirAll(f.root+"/etc/letsencrypt/renewal", 0o755)
+			os.WriteFile(f.root+"/etc/letsencrypt/renewal/"+name+".conf", nil, 0o644)
+			return os.WriteFile(f.root+"/etc/letsencrypt/live/"+name+"/fullchain.pem", []byte("cert"), 0o644)
 		case name == "nginx" && f.failNginx:
 			io.WriteString(out, "nginx: [emerg] something is wrong\n")
 			return exec.Command("false").Run()
@@ -351,5 +369,105 @@ func TestRunSiteJobRejectsBadParams(t *testing.T) {
 	}
 	if len(f.commands) != 0 {
 		t.Fatalf("ran %q", f.commands)
+	}
+}
+
+var stackWithCertbot = protocol.Inventory{Nginx: "1.24.0", PHP: []string{"8.3"}, Certbot: "2.9.0"}
+
+func sslSite() protocol.Site {
+	s := testSite()
+	s.SSL = true
+	s.ACME = &protocol.ACME{Email: "ops@example.com", Server: "https://acme.test/dir"}
+	return s
+}
+
+func TestHTTPSiteServesACMEChallenges(t *testing.T) {
+	f := newFakeSystem(t)
+	f.run(siteApplySteps(testSite(), stackWithPHP))
+	vhost := f.read("/etc/nginx/sites-available/keel-example.com.conf")
+	if !strings.Contains(vhost, "location ^~ /.well-known/acme-challenge/ {\n        root /var/lib/keel/acme;") || strings.Contains(vhost, "443") {
+		t.Fatalf("vhost:\n%s", vhost)
+	}
+}
+
+func TestSiteIssueCertificate(t *testing.T) {
+	f := newFakeSystem(t)
+	if res := f.run(siteApplySteps(sslSite(), stackWithCertbot)); !res.OK {
+		t.Fatalf("apply: %+v", res)
+	}
+	want := "certbot certonly --webroot --webroot-path /var/lib/keel/acme --cert-name keel-example.com --email ops@example.com " +
+		"--agree-tos --no-eff-email --non-interactive --keep-until-expiring --domain example.com --domain www.example.com --server https://acme.test/dir"
+	if !f.ran(want) {
+		t.Fatalf("certbot not run as %q; ran %q", want, f.commands)
+	}
+	vhost := f.read("/etc/nginx/sites-available/keel-example.com.conf")
+	for _, part := range []string{
+		"return 301 https://$host$request_uri;",
+		"listen 443 ssl http2;",
+		"ssl_certificate /etc/letsencrypt/live/keel-example.com/fullchain.pem;",
+		"ssl_certificate_key /etc/letsencrypt/live/keel-example.com/privkey.pem;",
+		"root /home/k_example_com/example.com/public;",
+	} {
+		if !strings.Contains(vhost, part) {
+			t.Errorf("vhost misses %q:\n%s", part, vhost)
+		}
+	}
+	// The challenge location stays on port 80, ahead of the redirect.
+	if strings.Index(vhost, "acme-challenge") > strings.Index(vhost, "return 301") || strings.Index(vhost, "root /home") < strings.Index(vhost, "listen 443") {
+		t.Fatalf("blocks out of order:\n%s", vhost)
+	}
+	if hook := f.read(renewHookPath); !strings.Contains(hook, "systemctl reload nginx") {
+		t.Fatalf("renew hook = %q", hook)
+	}
+}
+
+func TestSiteCertbotFails(t *testing.T) {
+	f := newFakeSystem(t)
+	f.failCertbot = true
+	res := f.run(siteApplySteps(sslSite(), stackWithCertbot))
+	if res.OK || !strings.Contains(res.Error, "points at this server") {
+		t.Fatalf("res = %+v", res)
+	}
+	// The site still works over HTTP.
+	if vhost := f.read("/etc/nginx/sites-available/keel-example.com.conf"); strings.Contains(vhost, "443") || !strings.Contains(vhost, "root /home/k_example_com") {
+		t.Fatalf("vhost:\n%s", vhost)
+	}
+}
+
+func TestSiteSSLNeedsCertbot(t *testing.T) {
+	f := newFakeSystem(t)
+	if res := f.run(siteApplySteps(sslSite(), stackWithPHP)); res.OK || !strings.Contains(res.Error, "Certbot is not installed") {
+		t.Fatalf("res = %+v", res)
+	}
+}
+
+func TestSiteDeleteRemovesCertificate(t *testing.T) {
+	f := newFakeSystem(t)
+	s := sslSite()
+	f.run(siteApplySteps(s, stackWithCertbot))
+	if res := f.run(siteDeleteSteps(s)); !res.OK || !f.ran("certbot delete --cert-name keel-example.com --non-interactive") {
+		t.Fatalf("res = %+v, ran %q", res, f.commands)
+	}
+}
+
+func TestReadCertificates(t *testing.T) {
+	dir := t.TempDir()
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	notAfter := time.Now().Add(90 * 24 * time.Hour).Truncate(time.Second)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"example.com", "www.example.com"}, NotBefore: time.Now(), NotAfter: notAfter}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(dir+"/keel-example.com", 0o755)
+	os.WriteFile(dir+"/keel-example.com/cert.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	os.MkdirAll(dir+"/other.org", 0o755) // not Keel's
+	os.WriteFile(dir+"/other.org/cert.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	os.MkdirAll(dir+"/keel-broken.com", 0o755)
+	os.WriteFile(dir+"/keel-broken.com/cert.pem", []byte("garbage"), 0o644)
+
+	certs := readCertificates(dir)
+	if len(certs) != 1 || certs[0].Domain != "example.com" || !certs[0].NotAfter.Equal(notAfter) || !slices.Equal(certs[0].Names, tmpl.DNSNames) {
+		t.Fatalf("certs = %+v", certs)
 	}
 }

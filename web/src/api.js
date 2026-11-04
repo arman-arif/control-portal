@@ -51,6 +51,7 @@ export const api = {
   createSite: (serverId, site) => request('POST', `/api/servers/${serverId}/sites`, site),
   site: (id) => request('GET', `/api/sites/${id}`),
   updateSite: (id, changes) => request('PATCH', `/api/sites/${id}`, changes),
+  issueSSL: (id, email) => request('POST', `/api/sites/${id}/ssl`, { email }),
   deleteSite: (id, deleteFiles) => request('DELETE', `/api/sites/${id}${deleteFiles ? '?delete_files=true' : ''}`),
   job: (id, after = 0) => request('GET', `/api/jobs/${id}?after=${after}`),
 }

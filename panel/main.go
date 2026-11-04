@@ -19,6 +19,7 @@ import (
 	"github.com/arman-arif/control-portal/panel/hub"
 	"github.com/arman-arif/control-portal/panel/secrets"
 	"github.com/arman-arif/control-portal/panel/store"
+	"github.com/arman-arif/control-portal/protocol"
 )
 
 func env(key, def string) string {
@@ -95,6 +96,13 @@ func serve() {
 	if warning != "" {
 		log.Print(warning)
 	}
+	acmeServer := os.Getenv("KEEL_ACME_SERVER")
+	if acmeServer != "" {
+		if err := (protocol.ACME{Email: "check@example.com", Server: acmeServer}).Validate(); err != nil {
+			log.Fatalf("KEEL_ACME_SERVER: %v", err)
+		}
+		log.Printf("site certificates come from %s instead of Let's Encrypt", acmeServer)
+	}
 	cfg := api.Config{
 		PublicURL:      publicURL,
 		WebDir:         env("KEEL_WEB_DIR", "web/dist"),
@@ -102,6 +110,7 @@ func serve() {
 		AllowSignup:    os.Getenv("KEEL_ALLOW_SIGNUP") == "true",
 		TrustProxy:     os.Getenv("KEEL_TRUST_PROXY") == "true",
 		TLSFingerprint: tlsFingerprint,
+		ACMEServer:     acmeServer,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -101,3 +101,55 @@ func TestParseAliases(t *testing.T) {
 		t.Fatalf("empty: %#v", got)
 	}
 }
+
+func TestACMEValidate(t *testing.T) {
+	for _, a := range []ACME{
+		{Email: "ops@example.com"},
+		{Email: "a.b+keel@sub.example.co.uk", Server: "https://acme-staging-v02.api.letsencrypt.org/directory"},
+		{Email: "ops@example.com", Server: "https://10.0.3.50:14000/dir"},
+	} {
+		if err := a.Validate(); err != nil {
+			t.Errorf("%+v: %v", a, err)
+		}
+	}
+	for _, a := range []ACME{
+		{},
+		{Email: "not an email"},
+		{Email: "Ops <ops@example.com>"},
+		{Email: "ops@example.com; reboot"},
+		{Email: "ops@example.com", Server: "http://acme.example.com/dir"},
+		{Email: "ops@example.com", Server: "https://acme.example.com/dir --staging"},
+		{Email: "ops@example.com", Server: "file:///etc/passwd"},
+	} {
+		if err := a.Validate(); err == nil {
+			t.Errorf("%+v: no error", a)
+		}
+	}
+}
+
+func TestSSLSiteNeedsACME(t *testing.T) {
+	s := Site{Domain: "example.com", SystemUser: "k_example_com", PHPVersion: "8.3", SSL: true}
+	if s.Validate() == nil {
+		t.Fatal("SSL site without ACME settings accepted")
+	}
+	s.ACME = &ACME{Email: "ops@example.com"}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if s.CertName() != "keel-example.com" {
+		t.Fatalf("cert name %q", s.CertName())
+	}
+}
+
+func TestInventoryCleanCertificates(t *testing.T) {
+	inv := Inventory{Certificates: []Certificate{
+		{Domain: "example.com", Names: []string{"example.com", "www.example.com", "bad name"}},
+		{Domain: "../../etc", Names: []string{"x.com"}},
+	}}.Clean()
+	if len(inv.Certificates) != 1 || len(inv.Certificates[0].Names) != 2 {
+		t.Fatalf("certificates = %+v", inv.Certificates)
+	}
+	if (Inventory{}).Clean().Certificates == nil {
+		t.Fatal("certificates should be an empty list, not null")
+	}
+}

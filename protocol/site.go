@@ -3,9 +3,12 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"net/mail"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Site actions. Their params are a Site.
@@ -13,6 +16,9 @@ const (
 	ActionSiteCreate = "site.create"
 	ActionSiteUpdate = "site.update"
 	ActionSiteDelete = "site.delete"
+	// ActionSiteSSLIssue gets a certificate for the site's names and switches
+	// it to HTTPS. Its params are the Site with SSL set.
+	ActionSiteSSLIssue = "site.ssl.issue"
 )
 
 // Site is what the agent needs to set up, change or remove a site. Every
@@ -27,6 +33,30 @@ type Site struct {
 	// DeleteFiles, for site.delete only, also removes the system user and its
 	// home directory with the site's files.
 	DeleteFiles bool `json:"delete_files,omitempty"`
+	// SSL sites are served over HTTPS with a certificate from ACME, which
+	// the agent keeps covering the site's names.
+	SSL  bool  `json:"ssl,omitempty"`
+	ACME *ACME `json:"acme,omitempty"`
+}
+
+// ACME is where a site's certificate comes from.
+type ACME struct {
+	Email  string `json:"email"`
+	Server string `json:"server,omitempty"` // directory URL; empty means Let's Encrypt
+}
+
+func (a ACME) Validate() error {
+	addr, err := mail.ParseAddress(a.Email)
+	if err != nil || addr.Address != a.Email || addr.Name != "" || strings.ContainsAny(a.Email, " \t\r\n\"'`$;&|<>()") || len(a.Email) > 254 {
+		return fmt.Errorf("%q is not a plain email address", a.Email)
+	}
+	if a.Server != "" {
+		u, err := url.Parse(a.Server)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || strings.ContainsAny(a.Server, " \t\r\n\"'`$;&|<>()") {
+			return fmt.Errorf("ACME server %q must be an https URL", a.Server)
+		}
+	}
+	return nil
 }
 
 const MaxAliases = 20
@@ -100,7 +130,25 @@ func (s Site) Validate() error {
 	if !slices.Contains(PHPVersions, s.PHPVersion) {
 		return fmt.Errorf("PHP version must be one of %v", PHPVersions)
 	}
+	if s.SSL {
+		if s.ACME == nil {
+			return errors.New("an SSL site needs ACME settings")
+		}
+		if err := s.ACME.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// CertName is the name of the site's certificate in certbot.
+func (s Site) CertName() string { return "keel-" + s.Domain }
+
+// Certificate is a Keel site certificate the agent found on its server.
+type Certificate struct {
+	Domain   string    `json:"domain"`
+	Names    []string  `json:"names"`
+	NotAfter time.Time `json:"not_after"`
 }
 
 // Names returns the domain followed by the aliases.

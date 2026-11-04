@@ -14,6 +14,7 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Agents can pin the panel's TLS certificate, so they only ever connect to your panel
 - Web stack: see what is installed and install Nginx, PHP 7.4 to 8.5 (several side by side), MySQL or MariaDB, Redis, Node.js 22/24/26 and Certbot from the server's Stack tab, with live output
 - Sites: create a PHP site with its own system user, PHP-FPM pool and Nginx config; change its PHP version, aliases and web directory; delete it, optionally with its files
+- HTTPS: get a free Let's Encrypt certificate for a site in one click; HTTP redirects to HTTPS, new aliases are added to the certificate, and Certbot renews it automatically
 
 ## Layout
 
@@ -58,6 +59,7 @@ For front-end work, run the panel as above and `npm run dev` in `web/`. Vite pro
 | `KEEL_ALLOW_SIGNUP` | `false` | Allow more accounts after the owner |
 | `KEEL_TRUST_PROXY` | `false` | Read the client IP from `X-Forwarded-For` when behind a reverse proxy |
 | `KEEL_TLS_FINGERPRINT` | (none) | Fingerprint of the panel's TLS certificate for new agents to pin. See [Pinning the panel's certificate](#pinning-the-panels-certificate). |
+| `KEEL_ACME_SERVER` | (Let's Encrypt) | ACME directory URL for site certificates. Set it only for testing, e.g. Let's Encrypt staging or a local Pebble. |
 
 ### Secret key
 
@@ -115,9 +117,14 @@ set -a; . ./.keel-dev.env; set +a
 ./dist/keel-panel
 scripts/lxc-dev.sh link keel-vps-noble '<install command from Add server>'
 scripts/lxc-dev.sh reset                 # destroy the VPS containers (keeps keel-db)
+
+# HTTPS without real DNS: Pebble stands in for Let's Encrypt
+scripts/lxc-dev.sh pebble                # create keel-pebble; VPSes trust its endpoint
+eval "$(scripts/lxc-dev.sh env)"         # now also sets KEEL_ACME_SERVER; restart the panel
+scripts/lxc-dev.sh acme-host keel-vps-noble shop.keel.test www.shop.keel.test
 ```
 
-Inside containers, CPU, load and disk show the host's figures. Any local or Docker PostgreSQL works just as well for the panel.
+Pebble validates challenges for real against the VPS, but its certificates come from a throwaway root, so use `curl -k --resolve shop.keel.test:443:<VPS IP>` to look at a site. `certbot renew --dry-run` on a VPS always asks Let's Encrypt's staging server, which can't reach `.test` names, so it fails there; real renewals use Pebble. Inside containers, CPU, load and disk show the host's figures. Any local or Docker PostgreSQL works just as well for the panel.
 
 ## Tests
 

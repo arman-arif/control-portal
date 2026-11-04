@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -88,11 +90,41 @@ pm.max_requests = 500
 chdir = /
 `))
 
+// acmeWebroot holds ACME HTTP challenges for every site, so issuing a
+// certificate doesn't depend on the site's own files or web directory.
+const acmeWebroot = "/var/lib/keel/acme"
+
+func certDir(s protocol.Site) string { return "/etc/letsencrypt/live/" + s.CertName() }
+
 var vhostTemplate = template.Must(template.New("vhost").Parse(`# Managed by Keel for {{.Domain}}. Keel rewrites this file; change the site in the panel instead.
 server {
     listen 80;
     listen [::]:80;
     server_name {{.ServerNames}};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ` + acmeWebroot + `;
+        default_type text/plain;
+    }
+{{- if .TLS}}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{.ServerNames}};
+
+    ssl_certificate {{.CertDir}}/fullchain.pem;
+    ssl_certificate_key {{.CertDir}}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:keel_ssl:10m;
+    ssl_session_timeout 1d;
+{{- end}}
+
     root {{.Root}};
     index index.php index.html;
     charset utf-8;
@@ -136,15 +168,20 @@ type siteTemplateData struct {
 	ServerNames string
 	Root        string
 	Socket      string
+	TLS         bool // serve HTTPS with the certificate in CertDir
+	CertDir     string
 }
 
-func templateData(s protocol.Site) siteTemplateData {
-	return siteTemplateData{Site: s, ServerNames: strings.Join(s.Names(), " "), Root: s.Root(), Socket: fpmSocket(s.Domain, s.PHPVersion)}
+func templateData(s protocol.Site, tls bool) siteTemplateData {
+	return siteTemplateData{Site: s, ServerNames: strings.Join(s.Names(), " "), Root: s.Root(),
+		Socket: fpmSocket(s.Domain, s.PHPVersion), TLS: tls, CertDir: certDir(s)}
 }
 
-func render(t *template.Template, s protocol.Site) []byte {
+func render(t *template.Template, s protocol.Site) []byte { return renderTLS(t, s, false) }
+
+func renderTLS(t *template.Template, s protocol.Site, tls bool) []byte {
 	var b bytes.Buffer
-	if err := t.Execute(&b, templateData(s)); err != nil {
+	if err := t.Execute(&b, templateData(s, tls)); err != nil {
 		panic(err) // the templates are fixed and the data validated
 	}
 	return b.Bytes()
@@ -153,7 +190,7 @@ func render(t *template.Template, s protocol.Site) []byte {
 // siteApplySteps creates a site or brings it in line with s. Running it again
 // with the same s changes nothing.
 func siteApplySteps(s protocol.Site, inv protocol.Inventory) []step {
-	return []step{
+	steps := []step{
 		{title: "check the web stack", fn: func(context.Context, io.Writer) error { return checkSiteStack(s, inv) }},
 		{title: "set up system user " + s.SystemUser, fn: func(ctx context.Context, out io.Writer) error { return ensureSiteUser(ctx, out, s) }},
 		{title: "set up " + s.Dir(), fn: func(ctx context.Context, out io.Writer) error { return ensureSiteDirs(out, s) }},
@@ -162,6 +199,13 @@ func siteApplySteps(s protocol.Site, inv protocol.Inventory) []step {
 		// Only once Nginx uses the new pool, so a version change has no gap.
 		{title: "remove pools for other PHP versions", fn: func(ctx context.Context, out io.Writer) error { return removePools(ctx, out, s.Domain, s.PHPVersion) }},
 	}
+	if s.SSL {
+		steps = append(steps,
+			step{title: "get the certificate for " + strings.Join(s.Names(), ", "), fn: func(ctx context.Context, out io.Writer) error { return ensureCert(ctx, out, s, inv) }},
+			step{title: "serve the site over HTTPS", fn: func(ctx context.Context, out io.Writer) error { return applyVhost(ctx, out, s) }},
+		)
+	}
+	return steps
 }
 
 func siteDeleteSteps(s protocol.Site) []step {
@@ -169,6 +213,7 @@ func siteDeleteSteps(s protocol.Site) []step {
 		{title: "remove the Nginx config", fn: func(ctx context.Context, out io.Writer) error { return removeVhost(ctx, out, s) }},
 		{title: "remove the PHP-FPM pool", fn: func(ctx context.Context, out io.Writer) error { return removePools(ctx, out, s.Domain, "") }},
 	}
+	steps = append(steps, step{title: "delete the certificate", fn: func(ctx context.Context, out io.Writer) error { return deleteCert(ctx, out, s) }})
 	if s.DeleteFiles {
 		steps = append(steps, step{title: "delete system user " + s.SystemUser + " and " + s.HomeDir(), fn: func(ctx context.Context, out io.Writer) error {
 			return deleteSiteUser(ctx, out, s)
@@ -355,9 +400,19 @@ func removePools(ctx context.Context, out io.Writer, domain, keep string) error 
 }
 
 // applyVhost writes and enables the site's Nginx config. If nginx -t rejects
-// it, the previous config comes back and Nginx keeps running unchanged.
+// it, the previous config comes back and Nginx keeps running unchanged. An SSL
+// site is served over HTTPS once its certificate exists, and over HTTP until
+// then.
 func applyVhost(ctx context.Context, out io.Writer, s protocol.Site) error {
-	restoreFile, err := replaceFile(vhostPath(s.Domain), render(vhostTemplate, s))
+	tls := false
+	if s.SSL {
+		_, err := os.Stat(rooted(certDir(s) + "/fullchain.pem"))
+		tls = err == nil
+		if !tls {
+			fmt.Fprintln(out, "no certificate yet, so the site is served over HTTP for now")
+		}
+	}
+	restoreFile, err := replaceFile(vhostPath(s.Domain), renderTLS(vhostTemplate, s, tls))
 	if err != nil {
 		return err
 	}
@@ -459,4 +514,77 @@ func deleteSiteUser(ctx context.Context, out io.Writer, s protocol.Site) error {
 		}
 	}
 	return fmt.Errorf("userdel: %w", lastErr)
+}
+
+// renewHook makes certbot reload Nginx after it renews any certificate.
+const renewHookPath = "/etc/letsencrypt/renewal-hooks/deploy/keel-reload-nginx"
+const renewHook = "#!/bin/sh\n# Installed by Keel: load renewed certificates.\nsystemctl reload nginx\n"
+
+// ensureCert asks certbot for a certificate covering the site's names. With
+// --keep-until-expiring it does nothing when the certificate already covers
+// them and isn't due for renewal, so it is cheap to run on every update.
+func ensureCert(ctx context.Context, out io.Writer, s protocol.Site, inv protocol.Inventory) error {
+	if inv.Certbot == "" {
+		return errors.New("Certbot is not installed; install it from the server's Stack tab")
+	}
+	if err := os.MkdirAll(rooted(acmeWebroot), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(rooted(filepath.Dir(renewHookPath)), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(rooted(renewHookPath), []byte(renewHook), 0o755); err != nil {
+		return err
+	}
+	args := []string{"certonly", "--webroot", "--webroot-path", acmeWebroot, "--cert-name", s.CertName(),
+		"--email", s.ACME.Email, "--agree-tos", "--no-eff-email", "--non-interactive", "--keep-until-expiring"}
+	for _, n := range s.Names() {
+		args = append(args, "--domain", n)
+	}
+	if s.ACME.Server != "" {
+		args = append(args, "--server", s.ACME.Server)
+	}
+	if err := runCommand(ctx, out, "certbot", args...); err != nil {
+		return fmt.Errorf("certbot could not get a certificate (check that %s points at this server and port 80 is open): %w",
+			strings.Join(s.Names(), ", "), err)
+	}
+	return nil
+}
+
+func deleteCert(ctx context.Context, out io.Writer, s protocol.Site) error {
+	if _, err := os.Stat(rooted("/etc/letsencrypt/renewal/" + s.CertName() + ".conf")); errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintln(out, "no certificate to delete")
+		return nil
+	}
+	if err := runCommand(ctx, out, "certbot", "delete", "--cert-name", s.CertName(), "--non-interactive"); err != nil {
+		return fmt.Errorf("certbot delete: %w", err)
+	}
+	return nil
+}
+
+// readCertificates lists the certificates of Keel sites in certbot's live
+// directory.
+func readCertificates(liveDir string) []protocol.Certificate {
+	certs := []protocol.Certificate{}
+	dirs, _ := filepath.Glob(filepath.Join(liveDir, "keel-*"))
+	for _, dir := range dirs {
+		b, err := os.ReadFile(filepath.Join(dir, "cert.pem"))
+		if err != nil {
+			continue
+		}
+		block, _ := pem.Decode(b)
+		if block == nil {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		certs = append(certs, protocol.Certificate{
+			Domain:   strings.TrimPrefix(filepath.Base(dir), "keel-"),
+			Names:    cert.DNSNames,
+			NotAfter: cert.NotAfter,
+		})
+	}
+	return certs
 }

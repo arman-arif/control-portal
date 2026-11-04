@@ -32,16 +32,18 @@ type Site struct {
 	SystemUser string    `json:"system_user"`
 	WebDir     string    `json:"web_dir"`
 	PHPVersion string    `json:"php_version"`
+	SSL        bool      `json:"ssl"`
+	ACMEEmail  string    `json:"acme_email"`
 	Status     string    `json:"status"`
 	Error      string    `json:"error"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-const siteCols = `id, server_id, domain, aliases, unix_user, web_dir, php_version, status, error, created_at`
+const siteCols = `id, server_id, domain, aliases, unix_user, web_dir, php_version, ssl, acme_email, status, error, created_at`
 
 func scanSite(row pgx.Row) (Site, error) {
 	var s Site
-	err := row.Scan(&s.ID, &s.ServerID, &s.Domain, &s.Aliases, &s.SystemUser, &s.WebDir, &s.PHPVersion, &s.Status, &s.Error, &s.CreatedAt)
+	err := row.Scan(&s.ID, &s.ServerID, &s.Domain, &s.Aliases, &s.SystemUser, &s.WebDir, &s.PHPVersion, &s.SSL, &s.ACMEEmail, &s.Status, &s.Error, &s.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrNotFound
 	}
@@ -150,5 +152,18 @@ func (s *Store) SiteJobFinished(ctx context.Context, siteID int64, status, errMs
 func (s *Store) DeleteSiteRow(ctx context.Context, siteID int64) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM sites WHERE id=$1 AND NOT EXISTS
 		(SELECT 1 FROM jobs WHERE site_id=$1 AND status IN ('queued', 'running'))`, siteID)
+	return err
+}
+
+// StartSSL records the ACME email for a site whose certificate is about to be
+// requested, and marks the site as updating.
+func (s *Store) StartSSL(ctx context.Context, userID, id int64, email string) (Site, error) {
+	return scanSite(s.db.QueryRow(ctx, `UPDATE sites SET acme_email=$3, status='updating', error=''
+		WHERE id=$1 AND user_id=$2 RETURNING `+siteCols, id, userID, email))
+}
+
+// SiteSSLIssued marks a site as served over HTTPS.
+func (s *Store) SiteSSLIssued(ctx context.Context, siteID int64) error {
+	_, err := s.db.Exec(ctx, `UPDATE sites SET ssl=true WHERE id=$1`, siteID)
 	return err
 }

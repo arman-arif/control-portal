@@ -211,7 +211,9 @@ func collectInventory(ctx context.Context) (protocol.Inventory, error) {
 	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
 		return protocol.Inventory{}, fmt.Errorf("dpkg-query: %w", err)
 	}
-	return parseInventory(string(out)), nil
+	inv := parseInventory(string(out))
+	inv.Certificates = readCertificates(rooted("/etc/letsencrypt/live"))
+	return inv.Clean(), nil
 }
 
 // parseInventory reads dpkg-query lines of package, status and version.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arman-arif/control-portal/panel/store"
 	"github.com/arman-arif/control-portal/protocol"
@@ -163,5 +164,73 @@ func TestSites(t *testing.T) {
 	c.do("GET", fmt.Sprintf("/api/servers/%d/jobs", created.Server.ID), nil, &history)
 	if len(history) != 5 || history[0].Action != protocol.ActionSiteDelete {
 		t.Fatalf("history = %+v", history)
+	}
+}
+
+func TestSiteSSL(t *testing.T) {
+	srv := newTestServer(t)
+	c := newClient(t, srv.URL)
+	c.do("POST", "/api/auth/signup", credentials{"owner@example.com", "password123"}, nil)
+	var created struct {
+		Server  serverView  `json:"server"`
+		Install installInfo `json:"install"`
+	}
+	c.do("POST", "/api/servers", map[string]string{"name": "Web 1"}, &created)
+	token := created.Install.Command[strings.LastIndex(created.Install.Command, " ")+1:]
+	_, secret := registerAgent(t, srv.URL, token)
+	agent := connectAgent(t, srv.URL, secret)
+	report := func(inv protocol.Inventory) {
+		agent.send(t, protocol.TypeInventory, "", inv)
+	}
+	report(protocol.Inventory{Nginx: "1.24.0", PHP: []string{"8.3"}})
+	eventually(t, func() bool {
+		var snap struct{ Inventory *protocol.Inventory }
+		c.do("GET", fmt.Sprintf("/api/servers/%d/stats", created.Server.ID), nil, &snap)
+		return snap.Inventory != nil
+	})
+
+	var res siteResponse
+	c.do("POST", fmt.Sprintf("/api/servers/%d/sites", created.Server.ID), map[string]any{"domain": "example.com", "php_version": "8.3"}, &res)
+	envID, _ := agent.readJob(t)
+	agent.send(t, protocol.TypeJobResult, envID, protocol.JobResult{OK: true})
+	ssl := fmt.Sprintf("/api/sites/%d/ssl", res.Site.ID)
+	site := fmt.Sprintf("/api/sites/%d", res.Site.ID)
+
+	if code := c.do("POST", ssl, map[string]string{}, nil); code != 409 {
+		t.Fatalf("SSL without Certbot = %d", code)
+	}
+	report(protocol.Inventory{Nginx: "1.24.0", PHP: []string{"8.3"}, Certbot: "2.9.0"})
+	eventually(t, func() bool { return c.do("POST", ssl, map[string]string{"email": "not an email"}, nil) == 400 })
+
+	var started siteResponse
+	if code := c.do("POST", ssl, map[string]string{}, &started); code != 202 || started.Site.Status != store.SiteUpdating {
+		t.Fatalf("issue = %d %+v", code, started.Site)
+	}
+	envID, job := agent.readJob(t)
+	var params protocol.Site
+	json.Unmarshal(job.Params, &params)
+	if job.Action != protocol.ActionSiteSSLIssue || !params.SSL || params.ACME == nil || params.ACME.Email != "owner@example.com" {
+		t.Fatalf("dispatched %+v params %+v", job, params)
+	}
+	agent.send(t, protocol.TypeJobResult, envID, protocol.JobResult{OK: true})
+	notAfter := time.Now().Add(89 * 24 * time.Hour).UTC().Truncate(time.Second)
+	report(protocol.Inventory{Nginx: "1.24.0", PHP: []string{"8.3"}, Certbot: "2.9.0",
+		Certificates: []protocol.Certificate{{Domain: "example.com", Names: []string{"example.com"}, NotAfter: notAfter}}})
+
+	var v siteView
+	eventually(t, func() bool {
+		c.do("GET", site, nil, &v)
+		return v.SSL && v.Status == store.SiteActive && v.Certificate != nil
+	})
+	if !v.Certificate.NotAfter.Equal(notAfter) || v.ACMEEmail != "owner@example.com" {
+		t.Fatalf("site = %+v cert %+v", v, v.Certificate)
+	}
+
+	// Later changes keep the site on HTTPS.
+	c.do("PATCH", site, map[string]any{"aliases": []string{"www.example.com"}}, nil)
+	_, job = agent.readJob(t)
+	json.Unmarshal(job.Params, &params)
+	if !params.SSL || params.ACME == nil || len(params.Aliases) != 1 {
+		t.Fatalf("update params %+v", params)
 	}
 }

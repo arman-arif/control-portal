@@ -66,7 +66,11 @@ type Inventory struct {
 	Redis   string   `json:"redis"`
 	NodeJS  string   `json:"nodejs"`
 	Certbot string   `json:"certbot"`
+	// Certificates are the certificates of Keel sites on the server.
+	Certificates []Certificate `json:"certificates"`
 }
+
+const maxCertificates = 1000
 
 var (
 	phpVersionPattern  = regexp.MustCompile(`^[0-9]\.[0-9]$`)
@@ -86,7 +90,19 @@ func (inv Inventory) Clean() Inventory {
 	out := Inventory{
 		Nginx: version(inv.Nginx), MySQL: version(inv.MySQL), MariaDB: version(inv.MariaDB),
 		Redis: version(inv.Redis), NodeJS: version(inv.NodeJS), Certbot: version(inv.Certbot),
-		PHP: []string{},
+		PHP: []string{}, Certificates: []Certificate{},
+	}
+	for _, c := range inv.Certificates {
+		if len(out.Certificates) == maxCertificates || ValidateDomain(c.Domain) != nil {
+			continue
+		}
+		names := []string{}
+		for _, n := range c.Names {
+			if ValidateDomain(n) == nil && len(names) <= MaxAliases {
+				names = append(names, n)
+			}
+		}
+		out.Certificates = append(out.Certificates, Certificate{Domain: c.Domain, Names: names, NotAfter: c.NotAfter.UTC()})
 	}
 	for _, v := range inv.PHP {
 		if phpVersionPattern.MatchString(v) && !slices.Contains(out.PHP, v) {

@@ -18,6 +18,7 @@ var queuedTimeouts = map[string]time.Duration{
 	protocol.ActionSiteCreate:      10 * time.Minute,
 	protocol.ActionSiteUpdate:      10 * time.Minute,
 	protocol.ActionSiteDelete:      10 * time.Minute,
+	protocol.ActionSiteSSLIssue:    10 * time.Minute,
 }
 
 type sendFunc func(typ, id string, v any) error
@@ -37,7 +38,7 @@ func runQueuedJob(ctx context.Context, send sendFunc, id string, job protocol.Jo
 		return runStreamed(ctx, send, id, aptCommand(ctx, "update"))
 	case protocol.ActionStackInstall:
 		return runStackInstall(ctx, send, id, job.Params)
-	case protocol.ActionSiteCreate, protocol.ActionSiteUpdate, protocol.ActionSiteDelete:
+	case protocol.ActionSiteCreate, protocol.ActionSiteUpdate, protocol.ActionSiteDelete, protocol.ActionSiteSSLIssue:
 		return runSiteJob(ctx, send, id, job)
 	}
 	return protocol.JobResult{Error: "unsupported action " + job.Action}
@@ -55,6 +56,9 @@ func runSiteJob(ctx context.Context, send sendFunc, id string, job protocol.Job)
 	}
 	if job.Action == protocol.ActionSiteDelete {
 		return runSteps(ctx, send, id, siteDeleteSteps(s))
+	}
+	if job.Action == protocol.ActionSiteSSLIssue && !s.SSL {
+		return protocol.JobResult{Error: "site.ssl.issue needs ssl set"}
 	}
 	inv, err := collectInventory(ctx)
 	if err != nil {

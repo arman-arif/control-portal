@@ -62,6 +62,7 @@ export function SitesCard({ serverId, online, inventory }) {
                   <span className="font-medium">{s.domain}</span>
                   {s.aliases.length > 0 && <span className="text-xs text-slate-500">+{s.aliases.length} more</span>}
                   <span className="text-sm text-slate-500">PHP {s.php_version}</span>
+                  {s.ssl && <span className="text-xs font-medium text-emerald-700">HTTPS</span>}
                   <span className="ml-auto">
                     <SiteStatus status={s.status} />
                   </span>

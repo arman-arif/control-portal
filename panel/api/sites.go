@@ -17,15 +17,31 @@ type siteView struct {
 	store.Site
 	Dir  string `json:"dir"`  // the site's directory on the server
 	Root string `json:"root"` // the directory Nginx serves
+	// Certificate is what the server last reported for the site, if anything.
+	Certificate *protocol.Certificate `json:"certificate"`
 }
 
-func siteParams(s store.Site) protocol.Site {
-	return protocol.Site{Domain: s.Domain, Aliases: s.Aliases, SystemUser: s.SystemUser, WebDir: s.WebDir, PHPVersion: s.PHPVersion}
+// siteParams is what the agent gets for a site.
+func (a *API) siteParams(s store.Site) protocol.Site {
+	p := protocol.Site{Domain: s.Domain, Aliases: s.Aliases, SystemUser: s.SystemUser, WebDir: s.WebDir, PHPVersion: s.PHPVersion, SSL: s.SSL}
+	if s.SSL || s.ACMEEmail != "" {
+		p.ACME = &protocol.ACME{Email: s.ACMEEmail, Server: a.cfg.ACMEServer}
+	}
+	return p
 }
 
-func viewSite(s store.Site) siteView {
-	p := siteParams(s)
-	return siteView{Site: s, Dir: p.Dir(), Root: p.Root()}
+func (a *API) viewSite(s store.Site) siteView {
+	p := a.siteParams(s)
+	v := siteView{Site: s, Dir: p.Dir(), Root: p.Root()}
+	if inv, ok := a.hub.Inventory(s.ServerID); ok {
+		for _, c := range inv.Certificates {
+			if c.Domain == s.Domain {
+				v.Certificate = &c
+				break
+			}
+		}
+	}
+	return v
 }
 
 // siteInput is the body of create and update requests. Pointers tell a field
@@ -89,7 +105,7 @@ func (a *API) handleListSites(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]siteView, len(sites))
 	for i, s := range sites {
-		out[i] = viewSite(s)
+		out[i] = a.viewSite(s)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -132,12 +148,12 @@ func (a *API) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	job, err := a.jobs.Enqueue(r.Context(), userID, sv.ID, &site.ID, protocol.ActionSiteCreate, siteParams(site))
+	job, err := a.jobs.Enqueue(r.Context(), userID, sv.ID, &site.ID, protocol.ActionSiteCreate, a.siteParams(site))
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"site": viewSite(site), "job": job})
+	writeJSON(w, http.StatusAccepted, map[string]any{"site": a.viewSite(site), "job": job})
 }
 
 // siteFromPath loads the site named by {id} for the current user, writing an
@@ -172,7 +188,7 @@ func (a *API) handleGetSite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		siteView
 		Jobs []store.Job `json:"jobs"`
-	}{viewSite(site), jobs})
+	}{a.viewSite(site), jobs})
 }
 
 func (a *API) handleUpdateSite(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +208,7 @@ func (a *API) handleUpdateSite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a site's domain can't be changed; add the new name as an alias, or create a new site")
 		return
 	}
-	p := siteParams(site)
+	p := a.siteParams(site)
 	if in.Aliases != nil {
 		p.Aliases = cleanNames(*in.Aliases)
 	}
@@ -219,12 +235,12 @@ func (a *API) handleUpdateSite(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, &site.ID, protocol.ActionSiteUpdate, siteParams(site))
+	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, &site.ID, protocol.ActionSiteUpdate, a.siteParams(site))
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"site": viewSite(site), "job": job})
+	writeJSON(w, http.StatusAccepted, map[string]any{"site": a.viewSite(site), "job": job})
 }
 
 // handleDeleteSite removes the site from the server, and with
@@ -235,7 +251,7 @@ func (a *API) handleDeleteSite(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p := siteParams(site)
+	p := a.siteParams(site)
 	p.DeleteFiles = r.URL.Query().Get("delete_files") == "true"
 	site, err := a.store.SetSiteStatus(r.Context(), userFrom(r).ID, site.ID, store.SiteDeleting)
 	if err != nil {
@@ -247,7 +263,52 @@ func (a *API) handleDeleteSite(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"site": viewSite(site), "job": job})
+	writeJSON(w, http.StatusAccepted, map[string]any{"site": a.viewSite(site), "job": job})
+}
+
+// handleIssueSSL gets a Let's Encrypt certificate for the site and switches it
+// to HTTPS. The body's email, defaulting to the account's, is the ACME
+// contact for expiry notices.
+func (a *API) handleIssueSSL(w http.ResponseWriter, r *http.Request) {
+	site, ok := a.siteFromPath(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	email := strings.TrimSpace(in.Email)
+	if email == "" {
+		email = userFrom(r).Email
+	}
+	if site.Status == store.SiteDeleting {
+		writeError(w, http.StatusConflict, "this site is being deleted")
+		return
+	}
+	p := a.siteParams(site)
+	p.SSL, p.ACME = true, &protocol.ACME{Email: email, Server: a.cfg.ACMEServer}
+	if err := p.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if inv, ok := a.hub.Inventory(site.ServerID); ok && inv.Certbot == "" {
+		writeError(w, http.StatusConflict, "Certbot is not installed on this server; install it from the Stack tab")
+		return
+	}
+	site, err := a.store.StartSSL(r.Context(), userFrom(r).ID, site.ID, email)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, site.ServerID, &site.ID, protocol.ActionSiteSSLIssue, p)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"site": a.viewSite(site), "job": job})
 }
 
 // jobFinished keeps a site's status in step with its jobs.
@@ -260,6 +321,8 @@ func (a *API) jobFinished(ctx context.Context, job store.Job) {
 	switch {
 	case job.Action == protocol.ActionSiteDelete && ok:
 		err = a.store.DeleteSiteRow(ctx, *job.SiteID)
+	case job.Action == protocol.ActionSiteSSLIssue && ok:
+		err = errors.Join(a.store.SiteSSLIssued(ctx, *job.SiteID), a.store.SiteJobFinished(ctx, *job.SiteID, store.SiteActive, ""))
 	case !ok:
 		err = a.store.SiteJobFinished(ctx, *job.SiteID, store.SiteFailed, job.Error)
 	default:

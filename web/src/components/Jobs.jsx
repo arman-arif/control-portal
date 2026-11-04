@@ -19,7 +19,12 @@ export const componentNames = {
   certbot: 'Certbot',
 }
 
-const siteActionLabels = { 'site.create': 'Create site', 'site.update': 'Update site', 'site.delete': 'Delete site' }
+const siteActionLabels = {
+  'site.create': 'Create site',
+  'site.update': 'Update site',
+  'site.delete': 'Delete site',
+  'site.ssl.issue': 'Get certificate for',
+}
 
 export function jobLabel(action, params) {
   if (siteActionLabels[action]) return `${siteActionLabels[action]} ${params?.domain ?? ''}`.trim()

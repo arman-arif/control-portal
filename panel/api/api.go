@@ -25,6 +25,7 @@ type Config struct {
 	AllowSignup    bool   // allow sign-up after the first account exists
 	TrustProxy     bool   // take the client IP from X-Forwarded-For
 	TLSFingerprint string // validated fingerprint new agents pin; empty for none
+	ACMEServer     string // ACME directory for site certificates; empty for Let's Encrypt
 }
 
 type API struct {
@@ -70,6 +71,7 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/sites/{id}", a.requireUser(a.handleGetSite))
 	mux.Handle("PATCH /api/sites/{id}", a.requireUser(a.handleUpdateSite))
 	mux.Handle("DELETE /api/sites/{id}", a.requireUser(a.handleDeleteSite))
+	mux.Handle("POST /api/sites/{id}/ssl", a.requireUser(a.handleIssueSSL))
 	mux.Handle("GET /api/servers/{id}/jobs", a.requireUser(a.handleListJobs))
 	mux.Handle("GET /api/jobs/{id}", a.requireUser(a.handleGetJob))
 
