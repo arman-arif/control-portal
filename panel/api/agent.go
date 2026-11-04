@@ -129,6 +129,12 @@ func (a *API) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			a.hub.RecordServices(serverID, managed)
+		case protocol.TypeInventory:
+			var inv protocol.Inventory
+			if json.Unmarshal(env.Data, &inv) != nil {
+				continue
+			}
+			a.hub.RecordInventory(serverID, inv.Clean())
 		case protocol.TypeJobResult:
 			var res protocol.JobResult
 			if json.Unmarshal(env.Data, &res) != nil {

@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"errors"
-	"os"
+	"encoding/json"
 	"os/exec"
-	"strconv"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -16,6 +14,7 @@ import (
 // queuedTimeouts bounds how long each queued action may run.
 var queuedTimeouts = map[string]time.Duration{
 	protocol.ActionPackagesRefresh: 10 * time.Minute,
+	protocol.ActionStackInstall:    30 * time.Minute,
 }
 
 type sendFunc func(typ, id string, v any) error
@@ -33,13 +32,36 @@ func runQueuedJob(ctx context.Context, send sendFunc, id string, job protocol.Jo
 	switch job.Action {
 	case protocol.ActionPackagesRefresh:
 		return runStreamed(ctx, send, id, aptCommand(ctx, "update"))
+	case protocol.ActionStackInstall:
+		return runStackInstall(ctx, send, id, job.Params)
 	}
 	return protocol.JobResult{Error: "unsupported action " + job.Action}
 }
 
+// runStackInstall checks the params again here, since the agent is what
+// touches the server, and refuses an install that conflicts with what is
+// installed now.
+func runStackInstall(ctx context.Context, send sendFunc, id string, raw json.RawMessage) protocol.JobResult {
+	var p protocol.StackInstall
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return protocol.JobResult{Error: "malformed params"}
+	}
+	if err := p.Validate(); err != nil {
+		return protocol.JobResult{Error: err.Error()}
+	}
+	inv, err := collectInventory(ctx)
+	if err != nil {
+		return protocol.JobResult{Error: "checking installed packages: " + err.Error()}
+	}
+	if conflict := protocol.StackConflict(p, inv); conflict != "" {
+		return protocol.JobResult{Error: conflict}
+	}
+	return runSteps(ctx, send, id, stackRecipe(p))
+}
+
 func aptCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "apt-get", args...)
-	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	cmd := exec.CommandContext(ctx, "apt-get", append(append([]string{}, aptOptions[:2]...), args...)...)
+	cmd.Env = commandEnv()
 	return cmd
 }
 
@@ -51,17 +73,7 @@ func runStreamed(ctx context.Context, send sendFunc, id string, cmd *exec.Cmd) p
 	cmd.WaitDelay = 5 * time.Second
 	err := cmd.Run()
 	w.Close()
-	switch {
-	case ctx.Err() == context.DeadlineExceeded:
-		return protocol.JobResult{Error: "the job took too long and was stopped"}
-	case err != nil:
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			return protocol.JobResult{Error: "command exited with status " + strconv.Itoa(exit.ExitCode())}
-		}
-		return protocol.JobResult{Error: err.Error()}
-	}
-	return protocol.JobResult{OK: true}
+	return commandResult(ctx, err)
 }
 
 // logWriter collects output and flushes it in chunks of at most

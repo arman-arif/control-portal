@@ -55,6 +55,7 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/servers/{id}/stats", a.requireUser(a.handleServerStats))
 	mux.Handle("POST /api/servers/{id}/services/{name}/{action}", a.requireUser(a.handleServiceAction))
 	mux.Handle("POST /api/servers/{id}/packages/refresh", a.requireUser(a.handleRefreshPackages))
+	mux.Handle("POST /api/servers/{id}/stack/install", a.requireUser(a.handleStackInstall))
 	mux.Handle("GET /api/servers/{id}/jobs", a.requireUser(a.handleListJobs))
 	mux.Handle("GET /api/jobs/{id}", a.requireUser(a.handleGetJob))
 

@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { Button, Card, ErrorNote, Meter, Sparkline, Spinner, StatusDot } from '../components/ui.jsx'
 import InstallSteps from '../components/InstallSteps.jsx'
 import { JobsCard } from '../components/Jobs.jsx'
+import { StackCard } from '../components/Stack.jsx'
 import { formatBytes, formatUptime, percent, timeAgo } from '../format.js'
 
 export default function ServerDetail() {
@@ -12,6 +13,8 @@ export default function ServerDetail() {
   const navigate = useNavigate()
   const { data: server, error } = usePolling(() => api.server(id), 5000)
   const { data: stats, refresh: refreshStats } = usePolling(() => api.stats(id), 5000)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = tabs.some((t) => t.id === searchParams.get('tab')) ? searchParams.get('tab') : 'overview'
 
   if (error?.status === 404) {
     return (
@@ -63,31 +66,63 @@ export default function ServerDetail() {
         <PendingInstall serverId={server.id} />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="CPU" value={latest && `${latest.cpu_percent.toFixed(0)}%`} series={history.map((s) => s.cpu_percent)} />
-            <StatCard
-              label="Memory"
-              value={latest && `${formatBytes(latest.mem_used)} / ${formatBytes(latest.mem_total)}`}
-              series={history.map((s) => percent(s.mem_used, s.mem_total))}
-            />
-            <StatCard
-              label="Disk"
-              value={latest && `${formatBytes(latest.disk_used)} / ${formatBytes(latest.disk_total)}`}
-              meter={latest && percent(latest.disk_used, latest.disk_total)}
-            />
-            <Card className="p-4">
-              <div className="text-sm text-slate-500">Load average</div>
-              <div className="mt-1 text-xl font-semibold">
-                {latest ? `${latest.load1.toFixed(2)} ${latest.load5.toFixed(2)} ${latest.load15.toFixed(2)}` : '—'}
+          <Tabs current={tab} onChange={(t) => setSearchParams(t === 'overview' ? {} : { tab: t }, { replace: true })} />
+          {tab === 'overview' && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard label="CPU" value={latest && `${latest.cpu_percent.toFixed(0)}%`} series={history.map((s) => s.cpu_percent)} />
+                <StatCard
+                  label="Memory"
+                  value={latest && `${formatBytes(latest.mem_used)} / ${formatBytes(latest.mem_total)}`}
+                  series={history.map((s) => percent(s.mem_used, s.mem_total))}
+                />
+                <StatCard
+                  label="Disk"
+                  value={latest && `${formatBytes(latest.disk_used)} / ${formatBytes(latest.disk_total)}`}
+                  meter={latest && percent(latest.disk_used, latest.disk_total)}
+                />
+                <Card className="p-4">
+                  <div className="text-sm text-slate-500">Load average</div>
+                  <div className="mt-1 text-xl font-semibold">
+                    {latest ? `${latest.load1.toFixed(2)} ${latest.load5.toFixed(2)} ${latest.load15.toFixed(2)}` : '—'}
+                  </div>
+                  <div className="mt-4 text-sm text-slate-500">Uptime</div>
+                  <div className="mt-1 font-medium">{latest ? formatUptime(latest.uptime) : '—'}</div>
+                </Card>
               </div>
-              <div className="mt-4 text-sm text-slate-500">Uptime</div>
-              <div className="mt-1 font-medium">{latest ? formatUptime(latest.uptime) : '—'}</div>
-            </Card>
-          </div>
-          <Services serverId={server.id} online={server.online} services={stats?.services ?? []} onChange={refreshStats} />
-          <JobsCard serverId={server.id} online={server.online} />
+              <Services serverId={server.id} online={server.online} services={stats?.services ?? []} onChange={refreshStats} />
+            </>
+          )}
+          {tab === 'stack' && <StackCard serverId={server.id} online={server.online} inventory={stats?.inventory} />}
+          {tab === 'jobs' && <JobsCard serverId={server.id} online={server.online} />}
         </>
       )}
+    </div>
+  )
+}
+
+const tabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'stack', label: 'Stack' },
+  { id: 'jobs', label: 'Jobs' },
+]
+
+function Tabs({ current, onChange }) {
+  return (
+    <div className="flex gap-1 border-b border-slate-200" role="tablist">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={current === t.id}
+          className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
+            current === t.id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-900'
+          }`}
+          onClick={() => onChange(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
     </div>
   )
 }

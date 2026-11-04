@@ -18,7 +18,7 @@ Self-hosted control panel for servers and their sites. A **panel** (Go API + Pos
 ## Layout
 
 - `panel/main.go` commands (`serve | init | fingerprint`), config, DB, HTTP server. `panel/init.go` and `panel/fingerprint.go` the other commands. `panel/api/` routes and handlers (`api.go` has the routes, CSRF guard and SPA server). `panel/hub/` live agent connections, in-memory stats, job dispatch. `panel/store/` queries and migrations. `panel/secrets/` AES-256-GCM for values stored in the database (`BYTEA` columns holding nonce‖ciphertext).
-- `agent/` the `keel-agent` binary (`register | run | repin | version`). Linux only: it reads `/proc`. `agent/pin.go` holds the HTTP client every panel connection must use, which enforces the TLS pin.
+- `agent/` the `keel-agent` binary (`register | run | repin | version`). Linux only: it reads `/proc`. `agent/pin.go` holds the HTTP client every panel connection must use, which enforces the TLS pin. `agent/stack.go` holds the fixed install recipes and the dpkg-based inventory; the panel only picks a component and a validated version (`protocol/stack.go`).
 - `protocol/` envelope, message types, allow-listed services and actions, TLS fingerprints.
 - `web/src/` `api.js` (fetch wrapper), `pages/`, `components/`.
 

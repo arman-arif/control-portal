@@ -33,6 +33,33 @@ func (a *API) handleRefreshPackages(w http.ResponseWriter, r *http.Request) {
 	a.enqueue(w, r, sv.ID, protocol.ActionPackagesRefresh, nil)
 }
 
+func (a *API) handleStackInstall(w http.ResponseWriter, r *http.Request) {
+	sv, ok := a.serverFromPath(w, r)
+	if !ok {
+		return
+	}
+	var p protocol.StackInstall
+	if !readJSON(w, r, &p) {
+		return
+	}
+	if err := p.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !sv.Linked {
+		writeError(w, http.StatusConflict, "this server is not linked yet")
+		return
+	}
+	// The agent checks again against what is installed when the job runs.
+	if inv, ok := a.hub.Inventory(sv.ID); ok {
+		if conflict := protocol.StackConflict(p, inv); conflict != "" {
+			writeError(w, http.StatusConflict, conflict)
+			return
+		}
+	}
+	a.enqueue(w, r, sv.ID, protocol.ActionStackInstall, p)
+}
+
 func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	sv, ok := a.serverFromPath(w, r)
 	if !ok {

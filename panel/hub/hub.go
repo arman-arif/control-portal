@@ -40,8 +40,9 @@ func (a *Agent) Send(ctx context.Context, typ, id string, v any) error {
 }
 
 type serverState struct {
-	history  []protocol.Stats
-	services []protocol.Service
+	history   []protocol.Stats
+	services  []protocol.Service
+	inventory *protocol.Inventory
 }
 
 type Hub struct {
@@ -134,10 +135,33 @@ func (h *Hub) RecordServices(serverID int64, svcs []protocol.Service) {
 	h.stateLocked(serverID).services = svcs
 }
 
+// RecordInventory keeps the stack inventory an agent reported, which the
+// caller has already cleaned.
+func (h *Hub) RecordInventory(serverID int64, inv protocol.Inventory) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stateLocked(serverID).inventory = &inv
+}
+
+// Inventory returns the last inventory reported for a server, if any.
+func (h *Hub) Inventory(serverID int64) (protocol.Inventory, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if st := h.state[serverID]; st != nil && st.inventory != nil {
+		inv := *st.inventory
+		inv.PHP = slices.Clone(inv.PHP)
+		return inv, true
+	}
+	return protocol.Inventory{}, false
+}
+
 type Snapshot struct {
 	Online   bool               `json:"online"`
 	History  []protocol.Stats   `json:"history"`
 	Services []protocol.Service `json:"services"`
+	// Inventory is null until the agent has reported one; agents older than
+	// the web stack step never do.
+	Inventory *protocol.Inventory `json:"inventory"`
 }
 
 func (h *Hub) Snapshot(serverID int64) Snapshot {
@@ -148,6 +172,11 @@ func (h *Hub) Snapshot(serverID int64) Snapshot {
 		snap.History = slices.Clone(st.history)
 		if st.services != nil {
 			snap.Services = slices.Clone(st.services)
+		}
+		if st.inventory != nil {
+			inv := *st.inventory
+			inv.PHP = slices.Clone(inv.PHP)
+			snap.Inventory = &inv
 		}
 	}
 	return snap

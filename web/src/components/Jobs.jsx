@@ -9,7 +9,23 @@ const actionLabels = {
   'packages.refresh': 'Refresh package lists',
 }
 
-export const jobLabel = (action) => actionLabels[action] || action
+export const componentNames = {
+  nginx: 'Nginx',
+  php: 'PHP',
+  mysql: 'MySQL',
+  mariadb: 'MariaDB',
+  redis: 'Redis',
+  nodejs: 'Node.js',
+  certbot: 'Certbot',
+}
+
+export function jobLabel(action, params) {
+  if (action === 'stack.install' && params?.component) {
+    const name = componentNames[params.component] || params.component
+    return `Install ${name}${params.version ? ` ${params.version}` : ''}`
+  }
+  return actionLabels[action] || action
+}
 
 const statusStyles = {
   queued: 'bg-slate-100 text-slate-600',
@@ -75,7 +91,7 @@ export function JobLog({ jobId }) {
       {job && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <JobStatus status={job.status} />
-          <span className="font-medium">{jobLabel(job.action)}</span>
+          <span className="font-medium">{jobLabel(job.action, job.params)}</span>
           {job.status === 'running' && <Spinner />}
           {job.error && <span className="text-red-600">{job.error}</span>}
         </div>
@@ -138,7 +154,7 @@ export function JobsCard({ serverId, online }) {
                 onClick={() => setSelected(selected === j.id ? null : j.id)}
               >
                 <JobStatus status={j.status} />
-                <span className="text-sm">{jobLabel(j.action)}</span>
+                <span className="text-sm">{jobLabel(j.action, j.params)}</span>
                 <span className="ml-auto text-xs text-slate-500">{timeAgo(j.created_at)}</span>
               </button>
               {selected === j.id && (

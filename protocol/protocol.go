@@ -16,6 +16,7 @@ const (
 	TypeJob       = "job"        // panel -> agent
 	TypeJobResult = "job_result" // agent -> panel, reply to a job with the same ID
 	TypeJobLog    = "job_log"    // agent -> panel, output of a running queued job
+	TypeInventory = "inventory"  // agent -> panel, after connecting, after each queued job, and periodically
 )
 
 // Job actions the agent accepts. The agent rejects anything else.
@@ -27,6 +28,7 @@ const (
 	// Queued jobs: the panel stores them, runs one at a time per server, and
 	// the agent streams their output as job_log messages.
 	ActionPackagesRefresh = "packages.refresh"
+	ActionStackInstall    = "stack.install" // params: StackInstall
 )
 
 // Envelope wraps every message on the wire.
@@ -119,7 +121,7 @@ func IsServiceAction(action string) bool {
 // output.
 func IsQueuedAction(action string) bool {
 	switch action {
-	case ActionPackagesRefresh:
+	case ActionPackagesRefresh, ActionStackInstall:
 		return true
 	}
 	return false

@@ -232,18 +232,33 @@ func runSession(ctx context.Context, cfg config, client *http.Client) error {
 		}
 	}
 
+	sendInventory := func() {
+		inv, err := collectInventory(ctx)
+		if err != nil {
+			log.Printf("listing installed packages: %v", err)
+			return
+		}
+		if err := send(protocol.TypeInventory, "", inv); err != nil {
+			log.Printf("sending inventory: %v", err)
+		}
+	}
+
 	if err := send(protocol.TypeHello, "", hello()); err != nil {
 		return err
 	}
 	sendServices()
+	sendInventory()
 
 	go func() {
 		collector := &statsCollector{}
 		collector.Collect() // prime the CPU sample
 		statsTick := time.NewTicker(5 * time.Second)
 		svcTick := time.NewTicker(30 * time.Second)
+		// Catches packages installed outside Keel.
+		invTick := time.NewTicker(5 * time.Minute)
 		defer statsTick.Stop()
 		defer svcTick.Stop()
+		defer invTick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -260,6 +275,8 @@ func runSession(ctx context.Context, cfg config, client *http.Client) error {
 				}
 			case <-svcTick.C:
 				sendServices()
+			case <-invTick.C:
+				sendInventory()
 			}
 		}
 	}()
@@ -285,15 +302,21 @@ func runSession(ctx context.Context, cfg config, client *http.Client) error {
 		go func(id string, job protocol.Job) {
 			log.Printf("job %s: %s %s", id, job.Action, job.Service)
 			var res protocol.JobResult
-			if protocol.IsQueuedAction(job.Action) {
+			queued := protocol.IsQueuedAction(job.Action)
+			if queued {
 				res = runQueuedJob(ctx, send, id, job)
 			} else {
 				res = runServiceJob(ctx, job)
 			}
+			// Report what changed before the result, so the panel shows the
+			// new state by the time the job shows as done.
+			sendServices()
+			if queued {
+				sendInventory()
+			}
 			if err := send(protocol.TypeJobResult, id, res); err != nil {
 				log.Printf("sending job result: %v", err)
 			}
-			sendServices()
 		}(env.ID, job)
 	}
 }
