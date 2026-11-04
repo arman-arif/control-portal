@@ -30,7 +30,8 @@ type Agent struct {
 	pending map[string]chan protocol.JobResult
 }
 
-func (a *Agent) send(ctx context.Context, typ, id string, v any) error {
+// Send writes one message to the agent.
+func (a *Agent) Send(ctx context.Context, typ, id string, v any) error {
 	b, err := protocol.Encode(typ, id, v)
 	if err != nil {
 		return err
@@ -95,6 +96,13 @@ func (h *Hub) Remove(serverID int64) {
 	}
 }
 
+// Agent returns the current connection for a server, or nil when offline.
+func (h *Hub) Agent(serverID int64) *Agent {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.agents[serverID]
+}
+
 func (h *Hub) Online(serverID int64) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -145,8 +153,9 @@ func (h *Hub) Snapshot(serverID int64) Snapshot {
 	return snap
 }
 
-// HandleJobResult delivers a job_result message to whoever is waiting on it.
-func (a *Agent) HandleJobResult(id string, res protocol.JobResult) {
+// HandleJobResult delivers a job_result message to whoever is waiting on it,
+// reporting whether anyone was.
+func (a *Agent) HandleJobResult(id string, res protocol.JobResult) bool {
 	a.mu.Lock()
 	ch := a.pending[id]
 	delete(a.pending, id)
@@ -154,6 +163,7 @@ func (a *Agent) HandleJobResult(id string, res protocol.JobResult) {
 	if ch != nil {
 		ch <- res
 	}
+	return ch != nil
 }
 
 // RunJob sends a job to a server's agent and waits for the result.
@@ -180,7 +190,7 @@ func (h *Hub) RunJob(ctx context.Context, serverID int64, job protocol.Job) (pro
 
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	if err := a.send(ctx, protocol.TypeJob, id, job); err != nil {
+	if err := a.Send(ctx, protocol.TypeJob, id, job); err != nil {
 		cleanup()
 		return protocol.JobResult{}, ErrOffline
 	}

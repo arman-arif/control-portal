@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/arman-arif/control-portal/panel/hub"
+	"github.com/arman-arif/control-portal/panel/jobs"
 	"github.com/arman-arif/control-portal/panel/store"
 )
 
@@ -28,11 +29,12 @@ type API struct {
 	cfg    Config
 	store  *store.Store
 	hub    *hub.Hub
+	jobs   *jobs.Runner
 	logins *rateLimiter
 }
 
 func New(cfg Config, st *store.Store, h *hub.Hub) *API {
-	return &API{cfg: cfg, store: st, hub: h, logins: newRateLimiter(5, loginWindow)}
+	return &API{cfg: cfg, store: st, hub: h, jobs: jobs.New(st, h), logins: newRateLimiter(5, loginWindow)}
 }
 
 func (a *API) Handler() http.Handler {
@@ -51,6 +53,9 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("POST /api/servers/{id}/install-command", a.requireUser(a.handleInstallCommand))
 	mux.Handle("GET /api/servers/{id}/stats", a.requireUser(a.handleServerStats))
 	mux.Handle("POST /api/servers/{id}/services/{name}/{action}", a.requireUser(a.handleServiceAction))
+	mux.Handle("POST /api/servers/{id}/packages/refresh", a.requireUser(a.handleRefreshPackages))
+	mux.Handle("GET /api/servers/{id}/jobs", a.requireUser(a.handleListJobs))
+	mux.Handle("GET /api/jobs/{id}", a.requireUser(a.handleGetJob))
 
 	mux.HandleFunc("POST /api/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/agent/ws", a.handleAgentWS)

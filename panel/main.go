@@ -59,6 +59,10 @@ func main() {
 	if err := st.Migrate(ctx); err != nil {
 		log.Fatalf("migrating database: %v", err)
 	}
+	// No agent can still be working on a job sent before this start.
+	if err := st.FailRunningJobs(ctx, "the panel restarted while the job was running"); err != nil {
+		log.Fatalf("cleaning up jobs: %v", err)
+	}
 
 	go func() {
 		t := time.NewTicker(time.Hour)

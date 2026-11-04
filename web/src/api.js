@@ -43,4 +43,7 @@ export const api = {
   stats: (id) => request('GET', `/api/servers/${id}/stats`),
   serviceAction: (id, name, action) =>
     request('POST', `/api/servers/${id}/services/${encodeURIComponent(name)}/${action}`),
+  refreshPackages: (id) => request('POST', `/api/servers/${id}/packages/refresh`),
+  jobs: (id) => request('GET', `/api/servers/${id}/jobs`),
+  job: (id, after = 0) => request('GET', `/api/jobs/${id}?after=${after}`),
 }
