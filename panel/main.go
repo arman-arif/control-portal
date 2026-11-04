@@ -17,6 +17,7 @@ import (
 
 	"github.com/arman-arif/control-portal/panel/api"
 	"github.com/arman-arif/control-portal/panel/hub"
+	"github.com/arman-arif/control-portal/panel/secrets"
 	"github.com/arman-arif/control-portal/panel/store"
 )
 
@@ -27,10 +28,53 @@ func env(key, def string) string {
 	return def
 }
 
+const usage = `usage: keel-panel [command]
+
+commands:
+  serve                  run the panel (the default)
+  init [--env-file PATH] create the secret key file (default ` + defaultEnvFile + `)
+`
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("keel-panel: ")
 
+	command := "serve"
+	args := os.Args[1:]
+	if len(args) > 0 {
+		command, args = args[0], args[1:]
+	}
+	switch {
+	case command == "init":
+		runInit(args)
+	case command == "serve" && len(args) == 0:
+		serve()
+	case command == "help" || command == "-h" || command == "--help":
+		fmt.Print(usage)
+	default:
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	}
+}
+
+// checkSecretKey makes sure the panel has a usable key before it starts, so a
+// bad setup shows at startup rather than when a secret is first needed.
+func checkSecretKey() error {
+	help := "run `keel-panel init` to create a key, then load the file it writes"
+	key := os.Getenv(secretKeyVar)
+	if key == "" {
+		return fmt.Errorf("%s is required: %s", secretKeyVar, help)
+	}
+	if _, err := secrets.New(key); err != nil {
+		return fmt.Errorf("%s is not usable (%v): %s", secretKeyVar, err, help)
+	}
+	return nil
+}
+
+func serve() {
+	if err := checkSecretKey(); err != nil {
+		log.Fatal(err)
+	}
 	dbURL := os.Getenv("KEEL_DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("KEEL_DATABASE_URL is required, e.g. postgres://keel:secret@localhost:5432/keel")

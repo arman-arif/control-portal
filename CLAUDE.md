@@ -17,7 +17,7 @@ Self-hosted control panel for servers and their sites. A **panel** (Go API + Pos
 
 ## Layout
 
-- `panel/main.go` config, DB, HTTP server. `panel/api/` routes and handlers (`api.go` has the routes, CSRF guard and SPA server). `panel/hub/` live agent connections, in-memory stats, job dispatch. `panel/store/` queries and migrations.
+- `panel/main.go` commands (`serve | init`), config, DB, HTTP server. `panel/init.go` the `init` command. `panel/api/` routes and handlers (`api.go` has the routes, CSRF guard and SPA server). `panel/hub/` live agent connections, in-memory stats, job dispatch. `panel/store/` queries and migrations. `panel/secrets/` AES-256-GCM for values stored in the database (`BYTEA` columns holding nonce‖ciphertext).
 - `agent/` the `keel-agent` binary (`register | run | version`). Linux only: it reads `/proc`.
 - `protocol/` envelope, message types, allow-listed services and actions.
 - `web/src/` `api.js` (fetch wrapper), `pages/`, `components/`.
@@ -32,6 +32,8 @@ Self-hosted control panel for servers and their sites. A **panel** (Go API + Pos
 ```sh
 export GOTOOLCHAIN=local
 make                                   # web/dist, dist/keel-agent-linux-{amd64,arm64}, dist/keel-panel
+go run ./panel init --env-file .keel-dev.env   # once; the panel refuses to start without KEEL_SECRET_KEY
+set -a; . ./.keel-dev.env; set +a
 KEEL_DATABASE_URL=postgres://keel:keel@localhost:5432/keel \
 KEEL_PUBLIC_URL=http://localhost:8080 go run ./panel     # run from repo root
 cd web && npm run dev                  # :5173, proxies /api, /install.sh, /downloads to :8080
@@ -44,7 +46,7 @@ go run ./agent register --panel http://localhost:8080 --token <TOKEN> --config .
 go run ./agent run --config ./.agent-dev.json
 ```
 
-Never commit `.agent-dev.json`; it holds the agent secret.
+Never commit `.agent-dev.json`; it holds the agent secret. `.keel-dev.env` holds the panel's secret key and is gitignored.
 
 ## Checks (run before calling work done)
 
@@ -58,6 +60,6 @@ API tests skip without `KEEL_TEST_DATABASE_URL`. Each test creates and drops its
 
 ## Git workflow
 
-- One feature branch and PR per milestone. Update README "What works today" with each milestone.
+- One feature branch and PR per plan step, each leaving `main` working. Update README "What works today" when a step adds something users can do.
 - PRs are squash-merged. Don't force-push; to update a branch, merge `main` into it.
 - Ask Ariful before starting a new milestone. A merged PR is not a go-ahead for the next one.

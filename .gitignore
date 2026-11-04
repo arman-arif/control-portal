@@ -1,4 +1,5 @@
 .claude/work/
+/.keel-dev.env
 /dist/
 web/node_modules/
 web/dist/
