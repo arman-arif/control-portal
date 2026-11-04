@@ -29,6 +29,14 @@ export default function Layout() {
             >
               Servers
             </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `rounded-md px-3 py-1.5 ${isActive ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:text-slate-900'}`
+              }
+            >
+              Settings
+            </NavLink>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-slate-500 sm:inline">{user.email}</span>

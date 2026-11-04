@@ -54,6 +54,11 @@ func TestDeployValidate(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	withToken := d
+	withToken.RepoURL, withToken.Token = "https://github.com/acme/shop.git", "ghs_16C7e42F292c6912E7710c838347Ae178B4a"
+	if err := withToken.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	for name, change := range map[string]func(*Deploy){
 		"raw url":   func(d *Deploy) { d.RepoURL = "acme/shop" },
 		"branch":    func(d *Deploy) { d.Branch = "-x" },
@@ -61,6 +66,8 @@ func TestDeployValidate(t *testing.T) {
 		"timeout 0": func(d *Deploy) { d.TimeoutMinutes = 0 },
 		"long":      func(d *Deploy) { d.TimeoutMinutes = MaxDeployTimeout + 1 },
 		"site":      func(d *Deploy) { d.Site.SystemUser = "root" },
+		"ssh token": func(d *Deploy) { d.Token = "ghs_abc" },
+		"bad token": func(d *Deploy) { d.RepoURL, d.Token = "https://github.com/acme/shop.git", "ghs abc\n" },
 	} {
 		bad := d
 		change(&bad)

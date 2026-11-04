@@ -45,6 +45,8 @@ func (a *API) handleSetRepository(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		RepoURL string `json:"repo_url"`
 		Branch  string `json:"branch"`
+		// InstallationID deploys through the account's GitHub App.
+		InstallationID *int64 `json:"installation_id"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -53,6 +55,17 @@ func (a *API) handleSetRepository(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if in.InstallationID != nil {
+		// The app clones over https with a token, and must be able to read the repository.
+		repo, err = a.checkAppRepo(r.Context(), userFrom(r).ID, *in.InstallationID, repo)
+		if isNotFound(err) {
+			writeError(w, http.StatusConflict, "no GitHub App is set up")
+			return
+		} else if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	branch := strings.TrimSpace(in.Branch)
 	if branch == "" {
@@ -68,6 +81,11 @@ func (a *API) handleSetRepository(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	if err := a.store.SetSiteGitHubSource(r.Context(), userID, site.ID, in.InstallationID); err != nil {
+		internalError(w, err)
+		return
+	}
+	site.GitHubInstallationID = in.InstallationID
 	if protocol.RepoUsesSSH(repo) && site.DeployKey == "" {
 		if _, err := a.jobs.Enqueue(r.Context(), userID, site.ServerID, store.SiteRef(site.ID), protocol.ActionSiteDeployKey, a.siteParams(site)); err != nil {
 			internalError(w, err)
@@ -312,4 +330,20 @@ func (a *API) deployJobFinished(ctx context.Context, job store.Job) {
 	if err != nil {
 		log.Printf("recording result of job %d: %v", job.ID, err)
 	}
+}
+
+// checkAppRepo makes sure the installation can read the repository, and
+// returns its https URL with GitHub's spelling of the name.
+func (a *API) checkAppRepo(ctx context.Context, userID, installationID int64, repoURL string) (string, error) {
+	repos, err := a.appRepos(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	want := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(repoURL, protocol.GitHubSSHPrefix), protocol.GitHubHTTPSPrefix), ".git")
+	for _, r := range repos {
+		if r.InstallationID == installationID && strings.EqualFold(r.FullName, want) {
+			return protocol.NormalizeRepoURL(protocol.GitHubHTTPSPrefix + r.FullName)
+		}
+	}
+	return "", errors.New("the GitHub App can't read " + want + "; install it on that repository first")
 }

@@ -88,19 +88,39 @@ export function DeploymentsTab({ site, online, onChange }) {
 }
 
 function RepositoryCard({ site, onChange }) {
+  const { data: app } = usePolling(() => api.githubApp(), 60000)
+  const [useApp, setUseApp] = useState(site.github_installation_id != null)
+  const [appRepos, setAppRepos] = useState(null)
   const [repo, setRepo] = useState(site.repo_url)
   const [branch, setBranch] = useState(site.branch || 'main')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [secret, setSecret] = useState('')
-  const changed = repo.trim() !== site.repo_url || branch.trim() !== site.branch
+  const appRepoName = (url) => url.replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '')
+  const picked = useApp ? appRepos?.find((r) => r.full_name === appRepoName(repo)) : null
+  const changed =
+    repo.trim() !== site.repo_url || branch.trim() !== site.branch || useApp !== (site.github_installation_id != null)
+
+  const chooseApp = async (on) => {
+    setUseApp(on)
+    setError('')
+    if (on && !appRepos) {
+      try {
+        setAppRepos(await api.githubAppRepos())
+      } catch (err) {
+        setError(err.message)
+      }
+    }
+  }
 
   const save = async (e) => {
     e.preventDefault()
     setError('')
     setBusy(true)
     try {
-      const v = await api.setRepository(site.id, repo.trim(), branch.trim())
+      const v = useApp
+        ? await api.setRepository(site.id, repo.trim(), branch.trim(), picked?.installation_id ?? site.github_installation_id)
+        : await api.setRepository(site.id, repo.trim(), branch.trim())
       setRepo(v.repo_url)
       setBranch(v.branch)
       onChange()
@@ -123,13 +143,51 @@ function RepositoryCard({ site, onChange }) {
     <Card>
       <form onSubmit={save} className="space-y-4 px-5 py-4">
         <h2 className="font-medium">Repository</h2>
+        {app?.configured && (
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={!useApp} onChange={() => chooseApp(false)} />
+              Deploy key or public repository
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={useApp} onChange={() => chooseApp(true)} />
+              Through the GitHub App ({app.app.name})
+            </label>
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
-          <Field label="GitHub repository" placeholder="git@github.com:owner/repo.git" value={repo} onChange={(e) => setRepo(e.target.value)} required />
+          {useApp ? (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-slate-700">Repository</span>
+              <select
+                className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+                value={appRepoName(repo)}
+                onChange={(e) => {
+                  const r = appRepos.find((x) => x.full_name === e.target.value)
+                  setRepo(`https://github.com/${r.full_name}.git`)
+                  setBranch(r.default_branch)
+                }}
+                required
+              >
+                <option value="">{appRepos ? 'Pick a repository' : 'Loading…'}</option>
+                {(appRepos ?? []).map((r) => (
+                  <option key={r.full_name} value={r.full_name}>
+                    {r.full_name}
+                    {r.private ? ' (private)' : ''}
+                  </option>
+                ))}
+                {!appRepos && site.github_installation_id != null && <option value={appRepoName(site.repo_url)}>{appRepoName(site.repo_url)}</option>}
+              </select>
+            </label>
+          ) : (
+            <Field label="GitHub repository" placeholder="git@github.com:owner/repo.git" value={repo} onChange={(e) => setRepo(e.target.value)} required />
+          )}
           <Field label="Branch" placeholder="main" value={branch} onChange={(e) => setBranch(e.target.value)} />
         </div>
         <p className="text-xs text-slate-500">
-          Use the SSH address for a private repository; the server gets its own deploy key for it. An https://github.com address works for
-          public repositories without a key.
+          {useApp
+            ? "Keel gets a short-lived, read-only token for the repository at each deploy. Pushes reach Keel through the app's webhook."
+            : 'Use the SSH address for a private repository; the server gets its own deploy key for it. An https://github.com address works for public repositories without a key.'}
         </p>
         <ErrorNote>{error}</ErrorNote>
         <Button type="submit" disabled={busy || !changed}>
@@ -138,7 +196,7 @@ function RepositoryCard({ site, onChange }) {
         </Button>
       </form>
 
-      {site.repo_url && (
+      {site.repo_url && site.github_installation_id == null && (
         <div className="space-y-5 border-t border-slate-100 px-5 py-4">
           {ssh && (
             <div className="space-y-2">

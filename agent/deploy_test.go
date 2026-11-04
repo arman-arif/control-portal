@@ -172,3 +172,39 @@ func TestDeployKey(t *testing.T) {
 		t.Fatal("a second request made a new key")
 	}
 }
+
+func TestDeployTokenGoesOnlyToGit(t *testing.T) {
+	f := newFakeSystem(t)
+	s := testSite()
+	f.run(siteApplySteps(s, stackWithPHP))
+	var envs [][]string
+	old := runAsUser
+	t.Cleanup(func() { runAsUser = old })
+	runAsUser = func(ctx context.Context, out io.Writer, s protocol.Site, dir string, env []string, name string, args ...string) (string, error) {
+		envs = append(envs, append([]string{name + " " + strings.Join(args, " ")}, env...))
+		if name == "git" && len(args) > 0 && args[0] == "log" {
+			return strings.Repeat("c", 40) + "\nmsg\n", nil
+		}
+		return "", nil
+	}
+	const token = "ghs_secret123"
+	d := protocol.Deploy{Site: s, RepoURL: "https://github.com/acme/shop.git", Branch: "main", TimeoutMinutes: 5, Script: "true\n", Token: token}
+	var logs logCapture
+	if res := runDeploy(context.Background(), logs.send, "j1", d); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	for _, e := range envs {
+		all := strings.Join(e, "\n")
+		isGit := strings.HasPrefix(e[0], "git ")
+		if strings.Contains(e[0], token) {
+			t.Fatalf("token in arguments: %s", e[0])
+		}
+		hasHeader := strings.Contains(all, "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic ")
+		if isGit != hasHeader {
+			t.Fatalf("%s: auth header present = %v", e[0], hasHeader)
+		}
+	}
+	if strings.Contains(logs.text.String(), token) {
+		t.Fatal("token in the log")
+	}
+}

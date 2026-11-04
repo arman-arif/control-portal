@@ -37,22 +37,24 @@ type Site struct {
 	RepoURL    string   `json:"repo_url"`
 	Branch     string   `json:"branch"`
 	// DeployScript is nil while the site uses Keel's default script.
-	DeployScript  *string   `json:"-"`
-	DeployTimeout int       `json:"deploy_timeout"`
-	DeployKey     string    `json:"deploy_key"`
-	UserID        int64     `json:"-"`
-	Status        string    `json:"status"`
-	Error         string    `json:"error"`
-	CreatedAt     time.Time `json:"created_at"`
+	DeployScript  *string `json:"-"`
+	DeployTimeout int     `json:"deploy_timeout"`
+	DeployKey     string  `json:"deploy_key"`
+	UserID        int64   `json:"-"`
+	// GitHubInstallationID is set when the site deploys through the GitHub App.
+	GitHubInstallationID *int64    `json:"github_installation_id"`
+	Status               string    `json:"status"`
+	Error                string    `json:"error"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 const siteCols = `id, server_id, domain, aliases, unix_user, web_dir, php_version, ssl, acme_email, status, error, created_at,
-	repo_url, branch, deploy_script, deploy_timeout, deploy_key, user_id`
+	repo_url, branch, deploy_script, deploy_timeout, deploy_key, user_id, github_installation_id`
 
 func scanSite(row pgx.Row) (Site, error) {
 	var s Site
 	err := row.Scan(&s.ID, &s.ServerID, &s.Domain, &s.Aliases, &s.SystemUser, &s.WebDir, &s.PHPVersion, &s.SSL, &s.ACMEEmail, &s.Status, &s.Error, &s.CreatedAt,
-		&s.RepoURL, &s.Branch, &s.DeployScript, &s.DeployTimeout, &s.DeployKey, &s.UserID)
+		&s.RepoURL, &s.Branch, &s.DeployScript, &s.DeployTimeout, &s.DeployKey, &s.UserID, &s.GitHubInstallationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrNotFound
 	}

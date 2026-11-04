@@ -8,6 +8,7 @@ import Servers from './pages/Servers.jsx'
 import AddServer from './pages/AddServer.jsx'
 import ServerDetail from './pages/ServerDetail.jsx'
 import SiteDetail from './pages/SiteDetail.jsx'
+import Settings from './pages/Settings.jsx'
 
 const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/servers/new" element={<AddServer />} />
             <Route path="/servers/:id" element={<ServerDetail />} />
             <Route path="/sites/:id" element={<SiteDetail />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/servers" replace />} />
           </Route>
         ) : (

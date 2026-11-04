@@ -47,6 +47,9 @@ type Deploy struct {
 	Branch         string `json:"branch"`
 	Script         string `json:"script"`
 	TimeoutMinutes int    `json:"timeout_minutes"`
+	// Token, for an https repository, is a short-lived GitHub App token that
+	// can read it. The panel adds it when the job is sent and never stores it.
+	Token string `json:"token,omitempty"`
 }
 
 type DeployResult struct {
@@ -124,5 +127,10 @@ func (d Deploy) Validate() error {
 	if d.TimeoutMinutes < 1 || d.TimeoutMinutes > MaxDeployTimeout {
 		return fmt.Errorf("the deploy timeout must be 1 to %d minutes", MaxDeployTimeout)
 	}
+	if d.Token != "" && (RepoUsesSSH(d.RepoURL) || !tokenPattern.MatchString(d.Token)) {
+		return errors.New("a GitHub token goes only with an https repository, and must be letters, digits and underscores")
+	}
 	return nil
 }
+
+var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,255}$`)

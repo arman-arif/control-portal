@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,6 +141,13 @@ func runDeploy(ctx context.Context, send sendFunc, id string, d protocol.Deploy)
 	s := d.Site
 	var result protocol.DeployResult
 	gitEnv := userEnv(s)
+	if d.Token != "" {
+		// In the environment rather than the URL or arguments, so it shows up
+		// in neither the log nor the process list. Only git gets it.
+		auth := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + d.Token))
+		gitEnv = append(gitEnv, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+			"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic "+auth)
+	}
 	git := func(ctx context.Context, out io.Writer, args ...string) (string, error) {
 		stdout, err := runAsUser(ctx, out, s, s.Dir(), gitEnv, "git", args...)
 		if err != nil {

@@ -17,6 +17,7 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - HTTPS: get a free Let's Encrypt certificate for a site in one click; HTTP redirects to HTTPS, new aliases are added to the certificate, and Certbot renews it automatically
 - Databases: create MySQL/MariaDB databases and users, choose which databases each user may use, and show or change a user's password (stored encrypted in the panel)
 - Deploys: deploy a site from GitHub (a private repository through the site's own deploy key, or a public one) by hand or on every push through a signed webhook; an editable deploy script runs as the site user, with live logs and a history
+- GitHub App (optional): create one for your account or organization from Settings, then let sites deploy private repositories through it with short-lived tokens and a single webhook
 
 ## Layout
 
@@ -74,6 +75,18 @@ keel-panel init     # writes the key to /etc/keel/panel.env, readable only by ro
 Then load that file with `EnvironmentFile=/etc/keel/panel.env` in the panel's systemd unit. Use `--env-file PATH` to write somewhere else. Running `init` again never replaces a key the file already has.
 
 **Back the key up separately from your database backups.** Secrets encrypted with it can't be recovered without it.
+
+## Deploying from GitHub
+
+Each site deploys one branch of a GitHub repository, from its **Deployments** tab. There are three ways in:
+
+- **Deploy key** (SSH address, e.g. `git@github.com:acme/shop.git`): the server makes a key for the site, which you add as a read-only deploy key in the repository's settings.
+- **Public repository** (`https://github.com/acme/shop`): no key needed.
+- **GitHub App**: create one under **Settings**, install it on your repositories, then pick a repository from the list. Keel gets a read-only token for that one repository at each deploy, so there are no keys to manage.
+
+To deploy on every push, add the site's webhook URL and secret in the repository's webhook settings. A GitHub App has one webhook for all its repositories, set up for you. Either way, GitHub must be able to reach the panel at `KEEL_PUBLIC_URL`.
+
+A deploy checks out the branch in the site folder as the site's own user, leaving untracked files such as `.env` alone, then runs the site's deploy script with `bash -e`. The default script runs `composer install` and, for Laravel, `artisan migrate` and `optimize`; install Composer from the Stack tab first. PHP picks up the new code without a reload.
 
 ## Linking a server
 

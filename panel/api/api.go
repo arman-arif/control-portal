@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/arman-arif/control-portal/panel/github"
 	"github.com/arman-arif/control-portal/panel/hub"
 	"github.com/arman-arif/control-portal/panel/jobs"
 	"github.com/arman-arif/control-portal/panel/secrets"
 	"github.com/arman-arif/control-portal/panel/store"
+	"github.com/arman-arif/control-portal/protocol"
 )
 
 type Config struct {
@@ -28,6 +30,8 @@ type Config struct {
 	TLSFingerprint string // validated fingerprint new agents pin; empty for none
 	ACMEServer     string // ACME directory for site certificates; empty for Let's Encrypt
 	Secrets        *secrets.Box
+	GitHubAPI      string // https://api.github.com unless set (for tests)
+	GitHubWeb      string // https://github.com unless set (for tests)
 }
 
 type API struct {
@@ -36,16 +40,30 @@ type API struct {
 	hub    *hub.Hub
 	jobs   *jobs.Runner
 	logins *rateLimiter
+	github *github.Client
 }
 
 func New(cfg Config, st *store.Store, h *hub.Hub) *API {
-	a := &API{cfg: cfg, store: st, hub: h, jobs: jobs.New(st, h), logins: newRateLimiter(5, loginWindow)}
+	if cfg.GitHubAPI == "" {
+		cfg.GitHubAPI = "https://api.github.com"
+	}
+	if cfg.GitHubWeb == "" {
+		cfg.GitHubWeb = "https://github.com"
+	}
+	gh := github.New()
+	gh.API = cfg.GitHubAPI
+	a := &API{cfg: cfg, store: st, hub: h, jobs: jobs.New(st, h), logins: newRateLimiter(5, loginWindow), github: gh}
 	a.jobs.OnFinish = func(ctx context.Context, job store.Job) {
 		a.jobFinished(ctx, job)
 		a.databaseJobFinished(ctx, job)
 		a.deployJobFinished(ctx, job)
 	}
-	a.jobs.Prepare = a.prepareJob
+	a.jobs.Prepare = func(ctx context.Context, job store.Job) (json.RawMessage, error) {
+		if job.Action == protocol.ActionSiteDeploy {
+			return a.prepareDeploy(ctx, job)
+		}
+		return a.prepareJob(ctx, job)
+	}
 	return a
 }
 
@@ -86,6 +104,13 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/sites/{id}/deployments", a.requireUser(a.handleListDeployments))
 	// Signed with the site's webhook secret instead of a session.
 	mux.HandleFunc("POST /api/hooks/github/{id}", a.handleGitHubWebhook)
+	mux.Handle("GET /api/github-app", a.requireUser(a.handleGetGitHubApp))
+	mux.Handle("DELETE /api/github-app", a.requireUser(a.handleDeleteGitHubApp))
+	mux.Handle("POST /api/github-app/manifest", a.requireUser(a.handleGitHubAppManifest))
+	mux.Handle("GET /api/github-app/callback", a.requireUser(a.handleGitHubAppCallback))
+	mux.Handle("GET /api/github-app/repositories", a.requireUser(a.handleGitHubAppRepos))
+	// Signed with the app's webhook secret instead of a session.
+	mux.HandleFunc("POST /api/hooks/github-app", a.handleGitHubAppWebhook)
 	mux.Handle("GET /api/servers/{id}/databases", a.requireUser(a.handleListDatabases))
 	mux.Handle("POST /api/servers/{id}/databases", a.requireUser(a.handleCreateDatabase))
 	mux.Handle("DELETE /api/databases/{id}", a.requireUser(a.handleDeleteDatabase))

@@ -24,7 +24,7 @@ import (
 
 // newTestServer starts the API against a fresh schema in the database named
 // by KEEL_TEST_DATABASE_URL, or skips the test when it is not set.
-func newTestServer(t *testing.T) *httptest.Server {
+func newTestServer(t *testing.T, configure ...func(*Config)) *httptest.Server {
 	t.Helper()
 	dbURL := os.Getenv("KEEL_TEST_DATABASE_URL")
 	if dbURL == "" {
@@ -61,7 +61,11 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(Config{PublicURL: "http://panel.test", WebDir: t.TempDir(), AgentDir: t.TempDir(), Secrets: box}, st, hub.New())
+	cfg := Config{PublicURL: "http://panel.test", WebDir: t.TempDir(), AgentDir: t.TempDir(), Secrets: box}
+	for _, f := range configure {
+		f(&cfg)
+	}
+	a := New(cfg, st, hub.New())
 	srv := httptest.NewServer(a.Handler())
 	t.Cleanup(srv.Close)
 	return srv

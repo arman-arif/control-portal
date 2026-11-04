@@ -60,7 +60,12 @@ export const api = {
   dbUserPassword: (id) => request('GET', `/api/database-users/${id}/password`),
   resetDBUserPassword: (id) => request('POST', `/api/database-users/${id}/password`),
   deleteDBUser: (id) => request('DELETE', `/api/database-users/${id}`),
-  setRepository: (id, repoUrl, branch) => request('PUT', `/api/sites/${id}/repository`, { repo_url: repoUrl, branch }),
+  setRepository: (id, repoUrl, branch, installationId) =>
+    request('PUT', `/api/sites/${id}/repository`, { repo_url: repoUrl, branch, installation_id: installationId ?? null }),
+  githubApp: () => request('GET', '/api/github-app'),
+  githubAppManifest: (organization) => request('POST', '/api/github-app/manifest', { organization }),
+  githubAppRepos: () => request('GET', '/api/github-app/repositories'),
+  deleteGitHubApp: () => request('DELETE', '/api/github-app'),
   webhookSecret: (id) => request('GET', `/api/sites/${id}/webhook-secret`),
   setDeployScript: (id, script, timeoutMinutes) =>
     request('PUT', `/api/sites/${id}/deploy-script`, { script, timeout_minutes: timeoutMinutes }),
