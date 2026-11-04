@@ -24,6 +24,9 @@ var queuedTimeouts = map[string]time.Duration{
 	protocol.ActionDBUserCreate:    5 * time.Minute,
 	protocol.ActionDBUserGrants:    5 * time.Minute,
 	protocol.ActionDBUserDrop:      5 * time.Minute,
+	protocol.ActionSiteDeployKey:   time.Minute,
+	// A deploy's own timeout comes from its params; this is the ceiling.
+	protocol.ActionSiteDeploy: protocol.MaxDeployTimeout * time.Minute,
 }
 
 type sendFunc func(typ, id string, v any) error
@@ -47,6 +50,24 @@ func runQueuedJob(ctx context.Context, send sendFunc, id string, job protocol.Jo
 		return runSiteJob(ctx, send, id, job)
 	case protocol.ActionDBCreate, protocol.ActionDBDrop, protocol.ActionDBUserCreate, protocol.ActionDBUserGrants, protocol.ActionDBUserDrop:
 		return runDatabaseJob(ctx, send, id, job)
+	case protocol.ActionSiteDeployKey:
+		var site protocol.Site
+		if err := json.Unmarshal(job.Params, &site); err != nil {
+			return protocol.JobResult{Error: "malformed params"}
+		}
+		if err := site.Validate(); err != nil {
+			return protocol.JobResult{Error: err.Error()}
+		}
+		return runDeployKey(ctx, send, id, site)
+	case protocol.ActionSiteDeploy:
+		var d protocol.Deploy
+		if err := json.Unmarshal(job.Params, &d); err != nil {
+			return protocol.JobResult{Error: "malformed params"}
+		}
+		if err := d.Validate(); err != nil {
+			return protocol.JobResult{Error: err.Error()}
+		}
+		return runDeploy(ctx, send, id, d)
 	}
 	return protocol.JobResult{Error: "unsupported action " + job.Action}
 }

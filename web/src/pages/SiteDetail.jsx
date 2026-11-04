@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { useAuth } from '../App.jsx'
 import { Button, Card, ErrorNote, Field, Spinner, StatusDot } from '../components/ui.jsx'
 import { JobLog, JobStatus, jobLabel } from '../components/Jobs.jsx'
 import { SiteStatus, parseNames, sitePending } from '../components/Sites.jsx'
+import { DeploymentsTab } from '../components/Deploy.jsx'
 import { timeAgo } from '../format.js'
 
 export default function SiteDetail() {
@@ -15,6 +16,8 @@ export default function SiteDetail() {
   const { data: server } = usePolling(() => (site ? api.server(site.server_id) : Promise.resolve(null)), 5000)
   const { data: stats } = usePolling(() => (site ? api.stats(site.server_id) : Promise.resolve(null)), 5000)
   const [openJob, setOpenJob] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') === 'deployments' ? 'deployments' : 'overview'
 
   // Once a delete has gone through, the site is gone: go back to its server.
   const [lastServer, setLastServer] = useState(null)
@@ -54,60 +57,84 @@ export default function SiteDetail() {
         {site.status === 'failed' && site.error && <p className="mt-2 text-sm text-red-600">{site.error}</p>}
       </div>
 
-      <Card>
-        <dl className="grid gap-x-6 gap-y-3 px-5 py-4 text-sm sm:grid-cols-[10rem_1fr]">
-          <dt className="text-slate-500">Domain</dt>
-          <dd>
-            <a href={`${site.ssl ? 'https' : 'http'}://${site.domain}`} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-              {site.domain}
-            </a>
-            {site.aliases.length > 0 && <span className="text-slate-500"> · {site.aliases.join(', ')}</span>}
-          </dd>
-          <dt className="text-slate-500">PHP</dt>
-          <dd>{site.php_version}</dd>
-          <dt className="text-slate-500">System user</dt>
-          <dd className="font-mono">{site.system_user}</dd>
-          <dt className="text-slate-500">Site folder</dt>
-          <dd className="font-mono break-all">{site.dir}</dd>
-          <dt className="text-slate-500">Web root</dt>
-          <dd className="font-mono break-all">{site.root}</dd>
-        </dl>
-      </Card>
+      <div className="flex gap-1 border-b border-slate-200" role="tablist">
+        {[
+          ['overview', 'Overview'],
+          ['deployments', 'Deployments'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
+              tab === id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+            onClick={() => setSearchParams(id === 'overview' ? {} : { tab: id }, { replace: true })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <SSLCard site={site} inventory={stats?.inventory} onIssued={refresh} />
+      {tab === 'deployments' && <DeploymentsTab site={site} online={!!server?.online} onChange={refresh} />}
+      {tab === 'overview' && (
+        <>
+          <Card>
+            <dl className="grid gap-x-6 gap-y-3 px-5 py-4 text-sm sm:grid-cols-[10rem_1fr]">
+              <dt className="text-slate-500">Domain</dt>
+              <dd>
+                <a href={`${site.ssl ? 'https' : 'http'}://${site.domain}`} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                  {site.domain}
+                </a>
+                {site.aliases.length > 0 && <span className="text-slate-500"> · {site.aliases.join(', ')}</span>}
+              </dd>
+              <dt className="text-slate-500">PHP</dt>
+              <dd>{site.php_version}</dd>
+              <dt className="text-slate-500">System user</dt>
+              <dd className="font-mono">{site.system_user}</dd>
+              <dt className="text-slate-500">Site folder</dt>
+              <dd className="font-mono break-all">{site.dir}</dd>
+              <dt className="text-slate-500">Web root</dt>
+              <dd className="font-mono break-all">{site.root}</dd>
+            </dl>
+          </Card>
 
-      <SettingsCard key={`${site.php_version}|${site.web_dir}|${site.aliases.join(',')}`} site={site} inventory={stats?.inventory} onSaved={refresh} />
+          <SSLCard site={site} inventory={stats?.inventory} onIssued={refresh} />
 
-      <Card>
-        <div className="border-b border-slate-100 px-5 py-3">
-          <h2 className="font-medium">Activity</h2>
-        </div>
-        {site.jobs.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-500">Nothing yet.</p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {site.jobs.map((j) => (
-              <li key={j.id}>
-                <button
-                  className={`flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left hover:bg-slate-50 ${shownJob === j.id ? 'bg-slate-50' : ''}`}
-                  onClick={() => setOpenJob(shownJob === j.id ? 0 : j.id)}
-                >
-                  <JobStatus status={j.status} />
-                  <span className="text-sm">{jobLabel(j.action, j.params)}</span>
-                  <span className="ml-auto text-xs text-slate-500">{timeAgo(j.created_at)}</span>
-                </button>
-                {shownJob === j.id && (
-                  <div className="px-5 pb-4">
-                    <JobLog jobId={j.id} />
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+          <SettingsCard key={`${site.php_version}|${site.web_dir}|${site.aliases.join(',')}`} site={site} inventory={stats?.inventory} onSaved={refresh} />
 
-      <DeleteCard site={site} onDeleted={refresh} />
+          <Card>
+            <div className="border-b border-slate-100 px-5 py-3">
+              <h2 className="font-medium">Activity</h2>
+            </div>
+            {site.jobs.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-slate-500">Nothing yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {site.jobs.map((j) => (
+                  <li key={j.id}>
+                    <button
+                      className={`flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left hover:bg-slate-50 ${shownJob === j.id ? 'bg-slate-50' : ''}`}
+                      onClick={() => setOpenJob(shownJob === j.id ? 0 : j.id)}
+                    >
+                      <JobStatus status={j.status} />
+                      <span className="text-sm">{jobLabel(j.action, j.params)}</span>
+                      <span className="ml-auto text-xs text-slate-500">{timeAgo(j.created_at)}</span>
+                    </button>
+                    {shownJob === j.id && (
+                      <div className="px-5 pb-4">
+                        <JobLog jobId={j.id} />
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <DeleteCard site={site} onDeleted={refresh} />
+        </>
+      )}
     </div>
   )
 }

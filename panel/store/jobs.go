@@ -30,13 +30,14 @@ type Job struct {
 	CreatedAt  time.Time       `json:"created_at"`
 	StartedAt  *time.Time      `json:"started_at"`
 	FinishedAt *time.Time      `json:"finished_at"`
+	Result     json.RawMessage `json:"result,omitempty"`
 }
 
-const jobCols = `id, server_id, site_id, database_id, database_user_id, action, params, status, error, created_at, started_at, finished_at`
+const jobCols = `id, server_id, site_id, database_id, database_user_id, action, params, status, error, created_at, started_at, finished_at, result`
 
 func scanJob(row pgx.Row) (Job, error) {
 	var j Job
-	err := row.Scan(&j.ID, &j.ServerID, &j.SiteID, &j.DatabaseID, &j.DBUserID, &j.Action, &j.Params, &j.Status, &j.Error, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
+	err := row.Scan(&j.ID, &j.ServerID, &j.SiteID, &j.DatabaseID, &j.DBUserID, &j.Action, &j.Params, &j.Status, &j.Error, &j.CreatedAt, &j.StartedAt, &j.FinishedAt, &j.Result)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j, ErrNotFound
 	}
@@ -79,13 +80,16 @@ func (s *Store) RequeueJob(ctx context.Context, id int64) error {
 
 // FinishJob records the outcome of a running job and returns it, or
 // ErrNotFound when the job was not running.
-func (s *Store) FinishJob(ctx context.Context, id int64, ok bool, errMsg string) (Job, error) {
+func (s *Store) FinishJob(ctx context.Context, id int64, ok bool, errMsg string, result json.RawMessage) (Job, error) {
 	status := JobSucceeded
 	if !ok {
 		status = JobFailed
 	}
-	return scanJob(s.db.QueryRow(ctx, `UPDATE jobs SET status=$2, error=$3, finished_at=now()
-		WHERE id=$1 AND status='running' RETURNING `+jobCols, id, status, errMsg))
+	if len(result) == 0 {
+		result = nil
+	}
+	return scanJob(s.db.QueryRow(ctx, `UPDATE jobs SET status=$2, error=$3, result=$4, finished_at=now()
+		WHERE id=$1 AND status='running' RETURNING `+jobCols, id, status, errMsg, result))
 }
 
 // FailRunningJobs fails every running job and returns them, for when the

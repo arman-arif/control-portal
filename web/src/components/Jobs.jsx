@@ -17,6 +17,7 @@ export const componentNames = {
   redis: 'Redis',
   nodejs: 'Node.js',
   certbot: 'Certbot',
+  composer: 'Composer',
 }
 
 const siteActionLabels = {
@@ -24,6 +25,8 @@ const siteActionLabels = {
   'site.update': 'Update site',
   'site.delete': 'Delete site',
   'site.ssl.issue': 'Get certificate for',
+  'site.deploy': 'Deploy',
+  'site.deploykey': 'Make deploy key for',
 }
 
 const dbActionLabels = {
@@ -36,7 +39,7 @@ const dbActionLabels = {
 
 export function jobLabel(action, params) {
   if (dbActionLabels[action]) return `${dbActionLabels[action]} ${params?.name ?? ''}`.trim()
-  if (siteActionLabels[action]) return `${siteActionLabels[action]} ${params?.domain ?? ''}`.trim()
+  if (siteActionLabels[action]) return `${siteActionLabels[action]} ${params?.domain ?? params?.site?.domain ?? ''}`.trim()
   if (action === 'stack.install' && params?.component) {
     const name = componentNames[params.component] || params.component
     return `Install ${name}${params.version ? ` ${params.version}` : ''}`
@@ -56,6 +59,10 @@ export function JobStatus({ status }) {
 }
 
 const isActive = (status) => status === 'queued' || status === 'running'
+
+// Terminal colour codes that tools print even when told not to.
+// eslint-disable-next-line no-control-regex
+const stripANSI = (text) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
 
 // JobLog follows one job, fetching new output every second until it has
 // finished and all output has arrived.
@@ -80,7 +87,7 @@ export function JobLog({ jobId }) {
         setJob(res)
         if (res.logs.length) {
           after = res.logs[res.logs.length - 1].id
-          setText((t) => t + res.logs.map((l) => l.text).join(''))
+          setText((t) => t + res.logs.map((l) => stripANSI(l.text)).join(''))
           more = true
         }
         if (!isActive(res.status) && !more) return

@@ -16,6 +16,7 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Sites: create a PHP site with its own system user, PHP-FPM pool and Nginx config; change its PHP version, aliases and web directory; delete it, optionally with its files
 - HTTPS: get a free Let's Encrypt certificate for a site in one click; HTTP redirects to HTTPS, new aliases are added to the certificate, and Certbot renews it automatically
 - Databases: create MySQL/MariaDB databases and users, choose which databases each user may use, and show or change a user's password (stored encrypted in the panel)
+- Deploys: deploy a site from GitHub (a private repository through the site's own deploy key, or a public one) by hand or on every push through a signed webhook; an editable deploy script runs as the site user, with live logs and a history
 
 ## Layout
 

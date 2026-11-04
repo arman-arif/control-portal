@@ -27,9 +27,18 @@ func TestDatabases(t *testing.T) {
 	dbs := fmt.Sprintf("/api/servers/%d/databases", sid)
 	users := fmt.Sprintf("/api/servers/%d/database-users", sid)
 
+	inventory := func() *protocol.Inventory {
+		var snap struct{ Inventory *protocol.Inventory }
+		c.do("GET", fmt.Sprintf("/api/servers/%d/stats", sid), nil, &snap)
+		return snap.Inventory
+	}
 	agent.send(t, protocol.TypeInventory, "", protocol.Inventory{Nginx: "1.24.0"})
-	eventually(t, func() bool { return c.do("POST", dbs, map[string]any{"name": "shop"}, nil) == 409 })
+	eventually(t, func() bool { return inventory() != nil })
+	if code := c.do("POST", dbs, map[string]any{"name": "shop"}, nil); code != 409 {
+		t.Fatalf("database without MySQL = %d", code)
+	}
 	agent.send(t, protocol.TypeInventory, "", protocol.Inventory{MySQL: "8.0.46"})
+	eventually(t, func() bool { inv := inventory(); return inv != nil && inv.MySQL != "" })
 	for _, bad := range []string{"", "Shop", "my-db", "mysql", "x`;drop"} {
 		if code := c.do("POST", dbs, map[string]any{"name": bad}, nil); code != 400 {
 			t.Fatalf("name %q = %d", bad, code)

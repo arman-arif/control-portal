@@ -25,25 +25,34 @@ var (
 )
 
 type Site struct {
-	ID         int64     `json:"id"`
-	ServerID   int64     `json:"server_id"`
-	Domain     string    `json:"domain"`
-	Aliases    []string  `json:"aliases"`
-	SystemUser string    `json:"system_user"`
-	WebDir     string    `json:"web_dir"`
-	PHPVersion string    `json:"php_version"`
-	SSL        bool      `json:"ssl"`
-	ACMEEmail  string    `json:"acme_email"`
-	Status     string    `json:"status"`
-	Error      string    `json:"error"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         int64    `json:"id"`
+	ServerID   int64    `json:"server_id"`
+	Domain     string   `json:"domain"`
+	Aliases    []string `json:"aliases"`
+	SystemUser string   `json:"system_user"`
+	WebDir     string   `json:"web_dir"`
+	PHPVersion string   `json:"php_version"`
+	SSL        bool     `json:"ssl"`
+	ACMEEmail  string   `json:"acme_email"`
+	RepoURL    string   `json:"repo_url"`
+	Branch     string   `json:"branch"`
+	// DeployScript is nil while the site uses Keel's default script.
+	DeployScript  *string   `json:"-"`
+	DeployTimeout int       `json:"deploy_timeout"`
+	DeployKey     string    `json:"deploy_key"`
+	UserID        int64     `json:"-"`
+	Status        string    `json:"status"`
+	Error         string    `json:"error"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
-const siteCols = `id, server_id, domain, aliases, unix_user, web_dir, php_version, ssl, acme_email, status, error, created_at`
+const siteCols = `id, server_id, domain, aliases, unix_user, web_dir, php_version, ssl, acme_email, status, error, created_at,
+	repo_url, branch, deploy_script, deploy_timeout, deploy_key, user_id`
 
 func scanSite(row pgx.Row) (Site, error) {
 	var s Site
-	err := row.Scan(&s.ID, &s.ServerID, &s.Domain, &s.Aliases, &s.SystemUser, &s.WebDir, &s.PHPVersion, &s.SSL, &s.ACMEEmail, &s.Status, &s.Error, &s.CreatedAt)
+	err := row.Scan(&s.ID, &s.ServerID, &s.Domain, &s.Aliases, &s.SystemUser, &s.WebDir, &s.PHPVersion, &s.SSL, &s.ACMEEmail, &s.Status, &s.Error, &s.CreatedAt,
+		&s.RepoURL, &s.Branch, &s.DeployScript, &s.DeployTimeout, &s.DeployKey, &s.UserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrNotFound
 	}
@@ -141,10 +150,12 @@ func (s *Store) SetSiteStatus(ctx context.Context, userID, id int64, status stri
 }
 
 // SiteJobFinished records the outcome of a site's job, unless more of its
-// jobs are still waiting, whose outcome will count instead.
+// jobs that change the site are still waiting, whose outcome will count
+// instead. Deploys have their own history and don't count.
 func (s *Store) SiteJobFinished(ctx context.Context, siteID int64, status, errMsg string) error {
 	_, err := s.db.Exec(ctx, `UPDATE sites SET status=$2, error=$3 WHERE id=$1 AND NOT EXISTS
-		(SELECT 1 FROM jobs WHERE site_id=$1 AND status IN ('queued', 'running'))`, siteID, status, errMsg)
+		(SELECT 1 FROM jobs WHERE site_id=$1 AND status IN ('queued', 'running')
+			AND action NOT IN ('site.deploy', 'site.deploykey'))`, siteID, status, errMsg)
 	return err
 }
 
@@ -165,5 +176,97 @@ func (s *Store) StartSSL(ctx context.Context, userID, id int64, email string) (S
 // SiteSSLIssued marks a site as served over HTTPS.
 func (s *Store) SiteSSLIssued(ctx context.Context, siteID int64) error {
 	_, err := s.db.Exec(ctx, `UPDATE sites SET ssl=true WHERE id=$1`, siteID)
+	return err
+}
+
+// GetSiteByID loads a site without checking its owner, for webhooks; the
+// caller must authenticate the request some other way.
+func (s *Store) GetSiteByID(ctx context.Context, id int64) (Site, error) {
+	return scanSite(s.db.QueryRow(ctx, `SELECT `+siteCols+` FROM sites WHERE id=$1`, id))
+}
+
+// SetSiteRepo saves where a site deploys from. The webhook secret is set only
+// if the site has none yet.
+func (s *Store) SetSiteRepo(ctx context.Context, userID, id int64, repoURL, branch string, sealedSecret []byte) (Site, error) {
+	return scanSite(s.db.QueryRow(ctx, `UPDATE sites SET repo_url=$3, branch=$4, webhook_secret=COALESCE(webhook_secret, $5)
+		WHERE id=$1 AND user_id=$2 RETURNING `+siteCols, id, userID, repoURL, branch, sealedSecret))
+}
+
+// SetSiteDeployScript saves the deploy script; nil goes back to the default.
+func (s *Store) SetSiteDeployScript(ctx context.Context, userID, id int64, script *string, timeoutMinutes int) (Site, error) {
+	return scanSite(s.db.QueryRow(ctx, `UPDATE sites SET deploy_script=$3, deploy_timeout=$4
+		WHERE id=$1 AND user_id=$2 RETURNING `+siteCols, id, userID, script, timeoutMinutes))
+}
+
+func (s *Store) SetSiteDeployKey(ctx context.Context, siteID int64, publicKey string) error {
+	_, err := s.db.Exec(ctx, `UPDATE sites SET deploy_key=$2 WHERE id=$1`, siteID, publicKey)
+	return err
+}
+
+// SiteWebhookSecret returns a site's sealed webhook secret, or ErrNotFound.
+func (s *Store) SiteWebhookSecret(ctx context.Context, siteID int64) ([]byte, error) {
+	var sealed []byte
+	err := s.db.QueryRow(ctx, `SELECT webhook_secret FROM sites WHERE id=$1`, siteID).Scan(&sealed)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && sealed == nil) {
+		return nil, ErrNotFound
+	}
+	return sealed, err
+}
+
+// ---- deployments ----
+
+type Deployment struct {
+	ID            int64      `json:"id"`
+	SiteID        int64      `json:"site_id"`
+	JobID         *int64     `json:"job_id"`
+	Trigger       string     `json:"trigger"`
+	CommitSHA     string     `json:"commit_sha"`
+	CommitMessage string     `json:"commit_message"`
+	CreatedAt     time.Time  `json:"created_at"`
+	Status        string     `json:"status"` // the job's status
+	Error         string     `json:"error"`
+	FinishedAt    *time.Time `json:"finished_at"`
+}
+
+func (s *Store) CreateDeployment(ctx context.Context, siteID, jobID int64, trigger, sha, message string) (Deployment, error) {
+	var id int64
+	if err := s.db.QueryRow(ctx, `INSERT INTO deployments(site_id, job_id, trigger, commit_sha, commit_message)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`, siteID, jobID, trigger, sha, message).Scan(&id); err != nil {
+		return Deployment{}, err
+	}
+	list, err := s.listDeployments(ctx, `d.id=$1`, id)
+	if err != nil || len(list) == 0 {
+		return Deployment{}, err
+	}
+	return list[0], nil
+}
+
+func (s *Store) ListDeployments(ctx context.Context, userID, siteID int64, limit int) ([]Deployment, error) {
+	return s.listDeployments(ctx, `d.site_id=$1 AND EXISTS (SELECT 1 FROM sites WHERE id=d.site_id AND user_id=$2)
+		ORDER BY d.id DESC LIMIT $3`, siteID, userID, limit)
+}
+
+func (s *Store) listDeployments(ctx context.Context, where string, args ...any) ([]Deployment, error) {
+	rows, err := s.db.Query(ctx, `SELECT d.id, d.site_id, d.job_id, d.trigger, d.commit_sha, d.commit_message, d.created_at,
+		COALESCE(j.status, 'failed'), COALESCE(j.error, ''), j.finished_at
+		FROM deployments d LEFT JOIN jobs j ON j.id = d.job_id WHERE `+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Deployment{}
+	for rows.Next() {
+		var d Deployment
+		if err := rows.Scan(&d.ID, &d.SiteID, &d.JobID, &d.Trigger, &d.CommitSHA, &d.CommitMessage, &d.CreatedAt, &d.Status, &d.Error, &d.FinishedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SetDeploymentCommit records the commit a deploy job checked out.
+func (s *Store) SetDeploymentCommit(ctx context.Context, jobID int64, sha, message string) error {
+	_, err := s.db.Exec(ctx, `UPDATE deployments SET commit_sha=$2, commit_message=$3 WHERE job_id=$1`, jobID, sha, message)
 	return err
 }

@@ -91,6 +91,8 @@ func stackRecipe(p protocol.StackInstall) []step {
 		}
 	case protocol.ComponentCertbot:
 		return []step{aptUpdate(), aptInstall("certbot")}
+	case protocol.ComponentComposer:
+		return []step{aptUpdate(), aptInstall("composer")}
 	}
 	return nil
 }
@@ -197,7 +199,7 @@ func commandResult(ctx context.Context, err error) protocol.JobResult {
 
 // inventoryPackages are the packages whose installed versions make up the
 // inventory. dpkg-query expands the pattern itself.
-var inventoryPackages = []string{"nginx", "mysql-server", "mariadb-server", "redis-server", "nodejs", "certbot", "php*-fpm"}
+var inventoryPackages = []string{"nginx", "mysql-server", "mariadb-server", "redis-server", "nodejs", "certbot", "composer", "php*-fpm"}
 
 // collectInventory asks dpkg which stack packages are installed.
 func collectInventory(ctx context.Context) (protocol.Inventory, error) {
@@ -238,6 +240,8 @@ func parseInventory(out string) protocol.Inventory {
 			inv.NodeJS = version
 		case "certbot":
 			inv.Certbot = version
+		case "composer":
+			inv.Composer = version
 		default:
 			if v, ok := strings.CutPrefix(pkg, "php"); ok {
 				if v, ok := strings.CutSuffix(v, "-fpm"); ok {

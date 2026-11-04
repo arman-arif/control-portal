@@ -8,17 +8,18 @@ import (
 
 // Web stack components the agent can install.
 const (
-	ComponentNginx   = "nginx"
-	ComponentPHP     = "php"
-	ComponentMySQL   = "mysql"
-	ComponentMariaDB = "mariadb"
-	ComponentRedis   = "redis"
-	ComponentNodeJS  = "nodejs"
-	ComponentCertbot = "certbot"
+	ComponentNginx    = "nginx"
+	ComponentPHP      = "php"
+	ComponentMySQL    = "mysql"
+	ComponentMariaDB  = "mariadb"
+	ComponentRedis    = "redis"
+	ComponentNodeJS   = "nodejs"
+	ComponentCertbot  = "certbot"
+	ComponentComposer = "composer"
 )
 
 // Components lists the installable components in display order.
-var Components = []string{ComponentNginx, ComponentPHP, ComponentMySQL, ComponentMariaDB, ComponentRedis, ComponentNodeJS, ComponentCertbot}
+var Components = []string{ComponentNginx, ComponentPHP, ComponentMySQL, ComponentMariaDB, ComponentRedis, ComponentNodeJS, ComponentCertbot, ComponentComposer}
 
 // PHPVersions are the PHP versions Keel installs, from the ondrej/php PPA.
 var PHPVersions = []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"}
@@ -42,7 +43,7 @@ func (p StackInstall) Validate() error {
 		versions = PHPVersions
 	case ComponentNodeJS:
 		versions = NodeVersions
-	case ComponentNginx, ComponentMySQL, ComponentMariaDB, ComponentRedis, ComponentCertbot:
+	case ComponentNginx, ComponentMySQL, ComponentMariaDB, ComponentRedis, ComponentCertbot, ComponentComposer:
 		if p.Version != "" {
 			return fmt.Errorf("%s takes no version", p.Component)
 		}
@@ -59,13 +60,14 @@ func (p StackInstall) Validate() error {
 // Inventory is what the agent reports about the web stack on its server. Each
 // string is the installed version, or empty when the component is missing.
 type Inventory struct {
-	Nginx   string   `json:"nginx"`
-	PHP     []string `json:"php"` // installed PHP-FPM versions, such as "8.3"
-	MySQL   string   `json:"mysql"`
-	MariaDB string   `json:"mariadb"`
-	Redis   string   `json:"redis"`
-	NodeJS  string   `json:"nodejs"`
-	Certbot string   `json:"certbot"`
+	Nginx    string   `json:"nginx"`
+	PHP      []string `json:"php"` // installed PHP-FPM versions, such as "8.3"
+	MySQL    string   `json:"mysql"`
+	MariaDB  string   `json:"mariadb"`
+	Redis    string   `json:"redis"`
+	NodeJS   string   `json:"nodejs"`
+	Certbot  string   `json:"certbot"`
+	Composer string   `json:"composer"`
 	// Certificates are the certificates of Keel sites on the server.
 	Certificates []Certificate `json:"certificates"`
 }
@@ -89,7 +91,7 @@ func (inv Inventory) Clean() Inventory {
 	}
 	out := Inventory{
 		Nginx: version(inv.Nginx), MySQL: version(inv.MySQL), MariaDB: version(inv.MariaDB),
-		Redis: version(inv.Redis), NodeJS: version(inv.NodeJS), Certbot: version(inv.Certbot),
+		Redis: version(inv.Redis), NodeJS: version(inv.NodeJS), Certbot: version(inv.Certbot), Composer: version(inv.Composer),
 		PHP: []string{}, Certificates: []Certificate{},
 	}
 	for _, c := range inv.Certificates {

@@ -19,6 +19,10 @@ type siteView struct {
 	Root string `json:"root"` // the directory Nginx serves
 	// Certificate is what the server last reported for the site, if anything.
 	Certificate *protocol.Certificate `json:"certificate"`
+	// Deploys
+	DeployScript        string `json:"deploy_script"`
+	DefaultDeployScript bool   `json:"default_deploy_script"`
+	WebhookURL          string `json:"webhook_url"`
 }
 
 // siteParams is what the agent gets for a site.
@@ -32,7 +36,10 @@ func (a *API) siteParams(s store.Site) protocol.Site {
 
 func (a *API) viewSite(s store.Site) siteView {
 	p := a.siteParams(s)
-	v := siteView{Site: s, Dir: p.Dir(), Root: p.Root()}
+	v := siteView{Site: s, Dir: p.Dir(), Root: p.Root(), DeployScript: deployScript(s), DefaultDeployScript: s.DeployScript == nil}
+	if s.RepoURL != "" {
+		v.WebhookURL = a.webhookURL(s.ID)
+	}
 	if inv, ok := a.hub.Inventory(s.ServerID); ok {
 		for _, c := range inv.Certificates {
 			if c.Domain == s.Domain {
@@ -313,7 +320,8 @@ func (a *API) handleIssueSSL(w http.ResponseWriter, r *http.Request) {
 
 // jobFinished keeps a site's status in step with its jobs.
 func (a *API) jobFinished(ctx context.Context, job store.Job) {
-	if job.SiteID == nil {
+	// Deploys have their own history and don't change the site's status.
+	if job.SiteID == nil || job.Action == protocol.ActionSiteDeploy || job.Action == protocol.ActionSiteDeployKey {
 		return
 	}
 	ok := job.Status == store.JobSucceeded

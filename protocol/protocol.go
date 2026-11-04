@@ -85,7 +85,12 @@ type JobResult struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// Result is structured output for the panel, such as the commit a deploy
+	// checked out. At most MaxJobResult bytes.
+	Result json.RawMessage `json:"result,omitempty"`
 }
+
+const MaxJobResult = 64 << 10
 
 // JobLog carries a chunk of a queued job's output, at most MaxLogChunk bytes
 // of UTF-8 text.
@@ -122,7 +127,8 @@ func IsServiceAction(action string) bool {
 func IsQueuedAction(action string) bool {
 	switch action {
 	case ActionPackagesRefresh, ActionStackInstall, ActionSiteCreate, ActionSiteUpdate, ActionSiteDelete, ActionSiteSSLIssue,
-		ActionDBCreate, ActionDBDrop, ActionDBUserCreate, ActionDBUserGrants, ActionDBUserDrop:
+		ActionDBCreate, ActionDBDrop, ActionDBUserCreate, ActionDBUserGrants, ActionDBUserDrop,
+		ActionSiteDeployKey, ActionSiteDeploy:
 		return true
 	}
 	return false

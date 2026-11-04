@@ -83,7 +83,7 @@ func (r *Runner) Disconnected(ctx context.Context, a *hub.Agent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if run := r.running[a.ServerID]; run != nil && run.agent == a {
-		r.finishLocked(ctx, a.ServerID, run, false, "the agent disconnected while the job was running")
+		r.finishLocked(ctx, a.ServerID, run, false, "the agent disconnected while the job was running", nil)
 	}
 	r.dispatchLocked(ctx, a.ServerID)
 }
@@ -119,7 +119,11 @@ func (r *Runner) HandleResult(ctx context.Context, a *hub.Agent, envID string, r
 	if res.Output != "" && !run.truncated {
 		r.appendLocked(ctx, run, res.Output)
 	}
-	r.finishLocked(ctx, a.ServerID, run, res.OK, res.Error)
+	result := res.Result
+	if len(result) > protocol.MaxJobResult {
+		result = nil
+	}
+	r.finishLocked(ctx, a.ServerID, run, res.OK, res.Error, result)
 	r.dispatchLocked(ctx, a.ServerID)
 	return true
 }
@@ -135,14 +139,14 @@ func (r *Runner) appendLocked(ctx context.Context, run *running, text string) {
 	}
 }
 
-func (r *Runner) finishLocked(ctx context.Context, serverID int64, run *running, ok bool, errMsg string) {
+func (r *Runner) finishLocked(ctx context.Context, serverID int64, run *running, ok bool, errMsg string, result json.RawMessage) {
 	delete(r.running, serverID)
 	if ok {
 		errMsg = ""
 	} else if errMsg == "" {
 		errMsg = "the job failed"
 	}
-	job, err := r.store.FinishJob(ctx, run.jobID, ok, errMsg)
+	job, err := r.store.FinishJob(ctx, run.jobID, ok, errMsg, result)
 	if err != nil {
 		log.Printf("finishing job %d: %v", run.jobID, err)
 		return
@@ -187,7 +191,7 @@ func (r *Runner) dispatchLocked(ctx context.Context, serverID int64) {
 	if r.Prepare != nil {
 		if params, err = r.Prepare(ctx, job); err != nil {
 			log.Printf("preparing job %d: %v", job.ID, err)
-			r.finishLocked(ctx, serverID, &running{jobID: job.ID, agent: a}, false, "could not prepare the job: "+err.Error())
+			r.finishLocked(ctx, serverID, &running{jobID: job.ID, agent: a}, false, "could not prepare the job: "+err.Error(), nil)
 			r.dispatchLocked(ctx, serverID)
 			return
 		}

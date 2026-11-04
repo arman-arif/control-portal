@@ -22,6 +22,7 @@ Self-hosted control panel for servers and their sites. A **panel** (Go API + Pos
 - `protocol/` envelope, message types, allow-listed services and actions, TLS fingerprints.
 - Site status (`creating | updating | deleting | active | failed`) follows the site's jobs through `jobs.Runner.OnFinish`; a site row is deleted only after its `site.delete` job succeeds.
 - Databases and database users follow their jobs the same way (`jobs.database_id`, `jobs.database_user_id`). Job params are kept as history, so they never hold secrets: `jobs.Runner.Prepare` adds a database user's password, decrypted from `database_users.password`, only when the job is sent. `agent/database.go` pipes SQL to `mysql` as root over the socket and never logs it; names and passwords are validated in `protocol/database.go` so no escaping is needed, and grants escape `_` (a wildcard in GRANT).
+- Deploys (`agent/deploy.go`) run git and the deploy script as the site user (`runAsUser`, never root) with a fixed environment. SSH remotes use the site's key and the GitHub host keys pinned in the agent. Agents return structured output in `JobResult.Result` (stored in `jobs.result`), such as the deployed commit. `POST /api/hooks/github/{site}` is outside sessions and CSRF and trusts only an `X-Hub-Signature-256` made with the site's webhook secret. Deploy jobs don't change a site's status.
 - `web/src/` `api.js` (fetch wrapper), `pages/`, `components/`.
 
 ## API conventions

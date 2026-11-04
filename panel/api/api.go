@@ -43,6 +43,7 @@ func New(cfg Config, st *store.Store, h *hub.Hub) *API {
 	a.jobs.OnFinish = func(ctx context.Context, job store.Job) {
 		a.jobFinished(ctx, job)
 		a.databaseJobFinished(ctx, job)
+		a.deployJobFinished(ctx, job)
 	}
 	a.jobs.Prepare = a.prepareJob
 	return a
@@ -78,6 +79,13 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("PATCH /api/sites/{id}", a.requireUser(a.handleUpdateSite))
 	mux.Handle("DELETE /api/sites/{id}", a.requireUser(a.handleDeleteSite))
 	mux.Handle("POST /api/sites/{id}/ssl", a.requireUser(a.handleIssueSSL))
+	mux.Handle("PUT /api/sites/{id}/repository", a.requireUser(a.handleSetRepository))
+	mux.Handle("GET /api/sites/{id}/webhook-secret", a.requireUser(a.handleWebhookSecret))
+	mux.Handle("PUT /api/sites/{id}/deploy-script", a.requireUser(a.handleSetDeployScript))
+	mux.Handle("POST /api/sites/{id}/deploy", a.requireUser(a.handleDeploy))
+	mux.Handle("GET /api/sites/{id}/deployments", a.requireUser(a.handleListDeployments))
+	// Signed with the site's webhook secret instead of a session.
+	mux.HandleFunc("POST /api/hooks/github/{id}", a.handleGitHubWebhook)
 	mux.Handle("GET /api/servers/{id}/databases", a.requireUser(a.handleListDatabases))
 	mux.Handle("POST /api/servers/{id}/databases", a.requireUser(a.handleCreateDatabase))
 	mux.Handle("DELETE /api/databases/{id}", a.requireUser(a.handleDeleteDatabase))
@@ -110,7 +118,7 @@ func (a *API) Handler() http.Handler {
 func csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/agent/") &&
+			strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/agent/") && !strings.HasPrefix(r.URL.Path, "/api/hooks/") &&
 			r.Header.Get("X-Keel-Request") != "1" {
 			writeError(w, http.StatusForbidden, "missing X-Keel-Request header")
 			return

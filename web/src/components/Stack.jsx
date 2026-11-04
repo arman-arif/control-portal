@@ -17,6 +17,7 @@ const components = [
   { id: 'redis', note: 'Cache and queue store' },
   { id: 'nodejs', versions: NODE_VERSIONS, note: 'For building front-end assets, from NodeSource' },
   { id: 'certbot', note: "For free Let's Encrypt certificates" },
+  { id: 'composer', note: 'PHP dependencies, used by the default deploy script' },
 ]
 
 const isActive = (status) => status === 'queued' || status === 'running'
