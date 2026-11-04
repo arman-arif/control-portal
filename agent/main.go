@@ -29,9 +29,10 @@ var version = "dev"
 const defaultConfigPath = "/etc/keel/agent.json"
 
 type config struct {
-	PanelURL string `json:"panel_url"`
-	ServerID int64  `json:"server_id"`
-	Secret   string `json:"secret"`
+	PanelURL       string `json:"panel_url"`
+	ServerID       int64  `json:"server_id"`
+	Secret         string `json:"secret"`
+	TLSFingerprint string `json:"tls_fingerprint,omitempty"`
 }
 
 func main() {
@@ -45,6 +46,8 @@ func main() {
 		cmdRegister(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
+	case "repin":
+		cmdRepin(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	default:
@@ -53,8 +56,9 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: keel-agent register --panel URL --token TOKEN [--config PATH]")
+	fmt.Fprintln(os.Stderr, "usage: keel-agent register --panel URL --token TOKEN [--fingerprint FINGERPRINT] [--config PATH]")
 	fmt.Fprintln(os.Stderr, "       keel-agent run [--config PATH]")
+	fmt.Fprintln(os.Stderr, "       keel-agent repin --fingerprint FINGERPRINT [--config PATH]")
 	fmt.Fprintln(os.Stderr, "       keel-agent version")
 	os.Exit(2)
 }
@@ -63,6 +67,7 @@ func cmdRegister(args []string) {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
 	panel := fs.String("panel", "", "panel URL, e.g. https://panel.example.com")
 	token := fs.String("token", "", "one-time install token from the panel")
+	fingerprint := fs.String("fingerprint", "", "pin the panel's TLS certificate to this fingerprint")
 	cfgPath := fs.String("config", defaultConfigPath, "where to write the agent config")
 	fs.Parse(args)
 	if *panel == "" || *token == "" {
@@ -71,8 +76,21 @@ func cmdRegister(args []string) {
 	panelURL := strings.TrimRight(*panel, "/")
 	hostname, _ := os.Hostname()
 
+	pin := *fingerprint
+	if pin != "" {
+		parsed, err := protocol.ParseFingerprint(pin)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pin = parsed.String()
+	}
+	client, err := panelClient(pin)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	body, _ := json.Marshal(map[string]string{"token": *token, "hostname": hostname})
-	resp, err := http.Post(panelURL+"/api/agent/register", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(panelURL+"/api/agent/register", "application/json", bytes.NewReader(body))
 	if err != nil {
 		log.Fatalf("contacting panel: %v", err)
 	}
@@ -88,7 +106,7 @@ func cmdRegister(args []string) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		log.Fatalf("reading panel response: %v", err)
 	}
-	cfg := config{PanelURL: panelURL, ServerID: out.ServerID, Secret: out.Secret}
+	cfg := config{PanelURL: panelURL, ServerID: out.ServerID, Secret: out.Secret, TLSFingerprint: pin}
 	if err := writeConfig(*cfgPath, cfg); err != nil {
 		log.Fatalf("writing config: %v", err)
 	}
@@ -122,6 +140,9 @@ func readConfig(path string) (config, error) {
 	if cfg.PanelURL == "" || cfg.Secret == "" {
 		return cfg, errors.New("config is missing panel_url or secret; run keel-agent register first")
 	}
+	if err := checkConfigFingerprint(cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
@@ -133,13 +154,17 @@ func cmdRun(args []string) {
 	if err != nil {
 		log.Fatalf("loading config: %v", err)
 	}
+	client, err := panelClient(cfg.TLSFingerprint)
+	if err != nil {
+		log.Fatalf("loading config: %v", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	backoff := time.Second
 	for {
 		started := time.Now()
-		err := runSession(ctx, cfg)
+		err := runSession(ctx, cfg, client)
 		if ctx.Err() != nil {
 			return
 		}
@@ -167,12 +192,13 @@ func wsURL(panelURL string) string {
 }
 
 // runSession holds one WebSocket connection to the panel until it drops.
-func runSession(ctx context.Context, cfg config) error {
+func runSession(ctx context.Context, cfg config, client *http.Client) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 	conn, resp, err := websocket.Dial(dialCtx, wsURL(cfg.PanelURL), &websocket.DialOptions{
+		HTTPClient: client,
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + cfg.Secret}},
 	})
 	dialCancel()

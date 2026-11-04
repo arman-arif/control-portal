@@ -11,6 +11,7 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Live CPU, memory, disk, load and uptime for each server
 - Start, stop and restart common services (nginx, MySQL, PHP-FPM, Redis and others)
 - Jobs: longer server tasks are queued, run one at a time per server, and show their output live with a history (first job: refresh package lists)
+- Agents can pin the panel's TLS certificate, so they only ever connect to your panel
 
 ## Layout
 
@@ -54,6 +55,7 @@ For front-end work, run the panel as above and `npm run dev` in `web/`. Vite pro
 | `KEEL_AGENT_DIR` | `dist` | Folder with `keel-agent-linux-amd64` and `keel-agent-linux-arm64` |
 | `KEEL_ALLOW_SIGNUP` | `false` | Allow more accounts after the owner |
 | `KEEL_TRUST_PROXY` | `false` | Read the client IP from `X-Forwarded-For` when behind a reverse proxy |
+| `KEEL_TLS_FINGERPRINT` | (none) | Fingerprint of the panel's TLS certificate for new agents to pin. See [Pinning the panel's certificate](#pinning-the-panels-certificate). |
 
 ### Secret key
 
@@ -76,6 +78,28 @@ curl -fsSL https://panel.example.com/install.sh | sudo bash -s -- <token>
 ```
 
 The token works once and expires after an hour. The agent connects out to the panel over a WebSocket, so the server does not need any extra inbound port.
+
+## Pinning the panel's certificate
+
+With a pin, an agent connects only to a panel presenting that certificate, on top of the usual check against trusted CAs. This protects agents if a CA ever issues a certificate for your panel's domain to someone else. It only applies when `KEEL_PUBLIC_URL` is `https://`. The panel doesn't terminate TLS itself, so you tell it the fingerprint of the certificate your reverse proxy serves:
+
+```sh
+keel-panel fingerprint https://panel.example.com
+# KEEL_TLS_FINGERPRINT=spki-sha256:...
+```
+
+Add that line to the panel's env file and restart the panel. Servers linked after that pin it automatically. To pin a server that is already linked, run `keel-agent repin` on it, as shown below. Without the setting, agents still check the certificate against trusted CAs, and the panel logs a warning at startup.
+
+**Keep the same private key when your certificate renews.** The default fingerprint covers the certificate's public key, so it survives a renewal only if the key stays the same. Certbot creates a new key at each renewal unless you tell it not to, so renew with `certbot renew --reuse-key`. If you use `keel-panel fingerprint --cert`, the pin covers the whole certificate and changes at every renewal.
+
+If the key does change, agents refuse to connect and show as offline until you re-pin them. Update `KEEL_TLS_FINGERPRINT` on the panel, then run this on each server:
+
+```sh
+sudo keel-agent repin --fingerprint spki-sha256:...
+sudo systemctl restart keel-agent
+```
+
+`repin` won't save a fingerprint that the panel isn't presenting. Get the new value from your own copy of the certificate if you suspect the connection is being intercepted, since that's exactly what the pin guards against.
 
 ## Local test servers (LXC)
 

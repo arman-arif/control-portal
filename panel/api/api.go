@@ -18,11 +18,12 @@ import (
 )
 
 type Config struct {
-	PublicURL   string // base URL agents and browsers use to reach the panel
-	WebDir      string // built web app (web/dist)
-	AgentDir    string // directory holding keel-agent-linux-<arch> binaries
-	AllowSignup bool   // allow sign-up after the first account exists
-	TrustProxy  bool   // take the client IP from X-Forwarded-For
+	PublicURL      string // base URL agents and browsers use to reach the panel
+	WebDir         string // built web app (web/dist)
+	AgentDir       string // directory holding keel-agent-linux-<arch> binaries
+	AllowSignup    bool   // allow sign-up after the first account exists
+	TrustProxy     bool   // take the client IP from X-Forwarded-For
+	TLSFingerprint string // validated fingerprint new agents pin; empty for none
 }
 
 type API struct {

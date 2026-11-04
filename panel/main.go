@@ -33,6 +33,8 @@ const usage = `usage: keel-panel [command]
 commands:
   serve                  run the panel (the default)
   init [--env-file PATH] create the secret key file (default ` + defaultEnvFile + `)
+  fingerprint [--cert] URL
+                         print the ` + tlsFingerprintVar + ` value for an https URL
 `
 
 func main() {
@@ -47,6 +49,8 @@ func main() {
 	switch {
 	case command == "init":
 		runInit(args)
+	case command == "fingerprint":
+		runFingerprint(args)
 	case command == "serve" && len(args) == 0:
 		serve()
 	case command == "help" || command == "-h" || command == "--help":
@@ -84,12 +88,20 @@ func serve() {
 	if err != nil {
 		log.Fatalf("KEEL_PUBLIC_URL: %v", err)
 	}
+	tlsFingerprint, warning, err := checkTLSFingerprint(os.Getenv(tlsFingerprintVar), publicURL)
+	if err != nil {
+		log.Fatalf("%s: %v", tlsFingerprintVar, err)
+	}
+	if warning != "" {
+		log.Print(warning)
+	}
 	cfg := api.Config{
-		PublicURL:   publicURL,
-		WebDir:      env("KEEL_WEB_DIR", "web/dist"),
-		AgentDir:    env("KEEL_AGENT_DIR", "dist"),
-		AllowSignup: os.Getenv("KEEL_ALLOW_SIGNUP") == "true",
-		TrustProxy:  os.Getenv("KEEL_TRUST_PROXY") == "true",
+		PublicURL:      publicURL,
+		WebDir:         env("KEEL_WEB_DIR", "web/dist"),
+		AgentDir:       env("KEEL_AGENT_DIR", "dist"),
+		AllowSignup:    os.Getenv("KEEL_ALLOW_SIGNUP") == "true",
+		TrustProxy:     os.Getenv("KEEL_TRUST_PROXY") == "true",
+		TLSFingerprint: tlsFingerprint,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
