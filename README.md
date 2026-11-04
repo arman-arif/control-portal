@@ -30,6 +30,9 @@ You need Go 1.24+, Node 20+ and PostgreSQL.
 createdb keel
 make            # builds web/dist, dist/keel-agent-linux-*, dist/keel-panel
 
+./dist/keel-panel init --env-file .keel-dev.env   # once: creates the secret key
+set -a; . ./.keel-dev.env; set +a
+
 KEEL_DATABASE_URL=postgres://localhost/keel \
 KEEL_PUBLIC_URL=http://localhost:8080 \
 ./dist/keel-panel
@@ -44,12 +47,25 @@ For front-end work, run the panel as above and `npm run dev` in `web/`. Vite pro
 | Variable | Default | Meaning |
 |---|---|---|
 | `KEEL_DATABASE_URL` | (required) | PostgreSQL connection string |
+| `KEEL_SECRET_KEY` | (required) | Key that encrypts secrets stored in the database: 32 bytes, base64. Create it with `keel-panel init`. |
 | `KEEL_PUBLIC_URL` | `http://localhost:8080` | Address servers and browsers use to reach the panel. Use `https://` in production. |
 | `KEEL_LISTEN` | `:8080` | Address the panel listens on |
 | `KEEL_WEB_DIR` | `web/dist` | Built web app |
 | `KEEL_AGENT_DIR` | `dist` | Folder with `keel-agent-linux-amd64` and `keel-agent-linux-arm64` |
 | `KEEL_ALLOW_SIGNUP` | `false` | Allow more accounts after the owner |
 | `KEEL_TRUST_PROXY` | `false` | Read the client IP from `X-Forwarded-For` when behind a reverse proxy |
+
+### Secret key
+
+The panel won't start without `KEEL_SECRET_KEY`. On a production panel, run this once as root:
+
+```sh
+keel-panel init     # writes the key to /etc/keel/panel.env, readable only by root
+```
+
+Then load that file with `EnvironmentFile=/etc/keel/panel.env` in the panel's systemd unit. Use `--env-file PATH` to write somewhere else. Running `init` again never replaces a key the file already has.
+
+**Back the key up separately from your database backups.** Secrets encrypted with it can't be recovered without it.
 
 ## Linking a server
 
@@ -68,6 +84,8 @@ The token works once and expires after an hour. The agent connects out to the pa
 ```sh
 scripts/lxc-dev.sh up                    # create/start keel-db, keel-vps-noble, keel-vps-jammy
 eval "$(scripts/lxc-dev.sh env)"         # KEEL_DATABASE_URL, KEEL_TEST_DATABASE_URL, KEEL_PUBLIC_URL
+./dist/keel-panel init --env-file .keel-dev.env   # once: creates the secret key
+set -a; . ./.keel-dev.env; set +a
 ./dist/keel-panel
 scripts/lxc-dev.sh link keel-vps-noble '<install command from Add server>'
 scripts/lxc-dev.sh reset                 # destroy the VPS containers (keeps keel-db)
