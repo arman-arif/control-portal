@@ -2,7 +2,7 @@
 
 Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cloudways-style managed hosting and aaPanel-style server tools in one place. See [docs/SPEC.md](docs/SPEC.md) for the full blueprint.
 
-## What works today (milestone 2, milestone 3 in progress)
+## What works today (v1: milestones 2 and 3)
 
 - Create the owner account and log in
 - Add a server and get a one-line install command
@@ -10,9 +10,9 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Server list with online/offline status
 - Live CPU, memory, disk, load and uptime for each server
 - Start, stop and restart common services (nginx, MySQL, PHP-FPM, Redis and others)
-- Jobs: longer server tasks are queued, run one at a time per server, and show their output live with a history (first job: refresh package lists)
+- Jobs: longer server tasks are queued, run one at a time per server, and show their output live, with a history
 - Agents can pin the panel's TLS certificate, so they only ever connect to your panel
-- Web stack: see what is installed and install Nginx, PHP 7.4 to 8.5 (several side by side), MySQL or MariaDB, Redis, Node.js 22/24/26 and Certbot from the server's Stack tab, with live output
+- Web stack: see what is installed and install Nginx, PHP 7.4 to 8.5 (several side by side), MySQL or MariaDB, Redis, Node.js 22/24/26, Certbot and Composer from the server's Stack tab, with live output
 - Sites: create a PHP site with its own system user, PHP-FPM pool and Nginx config; change its PHP version, aliases and web directory; delete it, optionally with its files
 - HTTPS: get a free Let's Encrypt certificate for a site in one click; HTTP redirects to HTTPS, new aliases are added to the certificate, and Certbot renews it automatically
 - Databases: create MySQL/MariaDB databases and users, choose which databases each user may use, and show or change a user's password (stored encrypted in the panel)
@@ -25,8 +25,9 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 ```
 panel/     Go: API server, database migrations, agent hub, job runner
 agent/     Go: the agent that runs on each managed server
-protocol/  Go: messages shared by the panel and the agent
+protocol/  Go: messages shared by the panel and the agent, and the checks both sides apply
 web/       React (plain JavaScript) + Tailwind front end
+scripts/   Local test environment (LXC containers, Pebble)
 docs/      Blueprint and design notes
 ```
 
