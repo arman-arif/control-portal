@@ -13,7 +13,7 @@ import (
 const maxLogResponse = 256 << 10
 
 func (a *API) enqueue(w http.ResponseWriter, r *http.Request, serverID int64, action string, params any) {
-	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, serverID, action, params)
+	job, err := a.jobs.Enqueue(r.Context(), userFrom(r).ID, serverID, nil, action, params)
 	if err != nil {
 		internalError(w, err)
 		return

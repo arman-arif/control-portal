@@ -13,6 +13,7 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Jobs: longer server tasks are queued, run one at a time per server, and show their output live with a history (first job: refresh package lists)
 - Agents can pin the panel's TLS certificate, so they only ever connect to your panel
 - Web stack: see what is installed and install Nginx, PHP 7.4 to 8.5 (several side by side), MySQL or MariaDB, Redis, Node.js 22/24/26 and Certbot from the server's Stack tab, with live output
+- Sites: create a PHP site with its own system user, PHP-FPM pool and Nginx config; change its PHP version, aliases and web directory; delete it, optionally with its files
 
 ## Layout
 

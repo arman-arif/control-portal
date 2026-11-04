@@ -6,6 +6,7 @@ import { Button, Card, ErrorNote, Meter, Sparkline, Spinner, StatusDot } from '.
 import InstallSteps from '../components/InstallSteps.jsx'
 import { JobsCard } from '../components/Jobs.jsx'
 import { StackCard } from '../components/Stack.jsx'
+import { SitesCard } from '../components/Sites.jsx'
 import { formatBytes, formatUptime, percent, timeAgo } from '../format.js'
 
 export default function ServerDetail() {
@@ -93,6 +94,7 @@ export default function ServerDetail() {
               <Services serverId={server.id} online={server.online} services={stats?.services ?? []} onChange={refreshStats} />
             </>
           )}
+          {tab === 'sites' && <SitesCard serverId={server.id} online={server.online} inventory={stats?.inventory} />}
           {tab === 'stack' && <StackCard serverId={server.id} online={server.online} inventory={stats?.inventory} />}
           {tab === 'jobs' && <JobsCard serverId={server.id} online={server.online} />}
         </>
@@ -103,6 +105,7 @@ export default function ServerDetail() {
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
+  { id: 'sites', label: 'Sites' },
   { id: 'stack', label: 'Stack' },
   { id: 'jobs', label: 'Jobs' },
 ]

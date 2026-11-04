@@ -19,7 +19,10 @@ export const componentNames = {
   certbot: 'Certbot',
 }
 
+const siteActionLabels = { 'site.create': 'Create site', 'site.update': 'Update site', 'site.delete': 'Delete site' }
+
 export function jobLabel(action, params) {
+  if (siteActionLabels[action]) return `${siteActionLabels[action]} ${params?.domain ?? ''}`.trim()
   if (action === 'stack.install' && params?.component) {
     const name = componentNames[params.component] || params.component
     return `Install ${name}${params.version ? ` ${params.version}` : ''}`

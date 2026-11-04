@@ -22,7 +22,7 @@ import (
 type step struct {
 	title string
 	args  []string
-	fn    func(ctx context.Context) error
+	fn    func(ctx context.Context, out io.Writer) error
 }
 
 func cmdStep(args ...string) step {
@@ -84,8 +84,8 @@ func stackRecipe(p protocol.StackInstall) []step {
 		return []step{
 			aptUpdate(),
 			aptInstall("ca-certificates"),
-			{title: "add the NodeSource signing key", fn: installNodeSourceKey},
-			{title: "add the NodeSource Node.js " + p.Version + " repository", fn: func(context.Context) error { return writeNodeSourceRepo(p.Version) }},
+			{title: "add the NodeSource signing key", fn: func(ctx context.Context, _ io.Writer) error { return installNodeSourceKey(ctx) }},
+			{title: "add the NodeSource Node.js " + p.Version + " repository", fn: func(context.Context, io.Writer) error { return writeNodeSourceRepo(p.Version) }},
 			aptUpdate(),
 			aptInstall("nodejs"),
 		}
@@ -159,7 +159,7 @@ func runSteps(ctx context.Context, send sendFunc, id string, steps []step) proto
 	for _, s := range steps {
 		fmt.Fprintf(w, "==> %s\n", s.title)
 		if s.fn != nil {
-			if err := s.fn(ctx); err != nil {
+			if err := s.fn(ctx, w); err != nil {
 				if ctx.Err() == context.DeadlineExceeded {
 					return protocol.JobResult{Error: "the job took too long and was stopped"}
 				}

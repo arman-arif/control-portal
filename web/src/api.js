@@ -47,5 +47,10 @@ export const api = {
   stackInstall: (id, component, version) =>
     request('POST', `/api/servers/${id}/stack/install`, version ? { component, version } : { component }),
   jobs: (id) => request('GET', `/api/servers/${id}/jobs`),
+  sites: (serverId) => request('GET', `/api/servers/${serverId}/sites`),
+  createSite: (serverId, site) => request('POST', `/api/servers/${serverId}/sites`, site),
+  site: (id) => request('GET', `/api/sites/${id}`),
+  updateSite: (id, changes) => request('PATCH', `/api/sites/${id}`, changes),
+  deleteSite: (id, deleteFiles) => request('DELETE', `/api/sites/${id}${deleteFiles ? '?delete_files=true' : ''}`),
   job: (id, after = 0) => request('GET', `/api/jobs/${id}?after=${after}`),
 }

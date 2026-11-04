@@ -121,7 +121,7 @@ func IsServiceAction(action string) bool {
 // output.
 func IsQueuedAction(action string) bool {
 	switch action {
-	case ActionPackagesRefresh, ActionStackInstall:
+	case ActionPackagesRefresh, ActionStackInstall, ActionSiteCreate, ActionSiteUpdate, ActionSiteDelete:
 		return true
 	}
 	return false

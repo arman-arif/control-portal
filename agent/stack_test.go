@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -178,14 +179,14 @@ func TestRunSteps(t *testing.T) {
 	ran := false
 	res := runSteps(context.Background(), logs.send, "j1", []step{
 		cmdStep("sh", "-c", "echo one"),
-		{title: "go code", fn: func(context.Context) error { ran = true; return nil }},
+		{title: "go code", fn: func(_ context.Context, out io.Writer) error { ran = true; io.WriteString(out, "from go\n"); return nil }},
 		cmdStep("sh", "-c", "echo env=$DEBIAN_FRONTEND"),
 	})
 	got := logs.text.String()
 	if !res.OK || !ran {
 		t.Fatalf("res = %+v, fn ran = %v", res, ran)
 	}
-	for _, want := range []string{"==> sh -c echo one\none\n", "==> go code\n", "env=noninteractive\n"} {
+	for _, want := range []string{"==> sh -c echo one\none\n", "==> go code\nfrom go\n", "env=noninteractive\n"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("log %q misses %q", got, want)
 		}
@@ -202,7 +203,7 @@ func TestRunSteps(t *testing.T) {
 
 	logs = logCapture{}
 	res = runSteps(context.Background(), logs.send, "j1", []step{
-		{title: "write file", fn: func(context.Context) error { return errors.New("disk full") }},
+		{title: "write file", fn: func(context.Context, io.Writer) error { return errors.New("disk full") }},
 		cmdStep("sh", "-c", "echo never"),
 	})
 	if res.OK || res.Error != "write file: disk full" || !strings.Contains(logs.text.String(), "error: disk full") || strings.Contains(logs.text.String(), "never") {

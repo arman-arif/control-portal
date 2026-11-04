@@ -15,6 +15,9 @@ import (
 var queuedTimeouts = map[string]time.Duration{
 	protocol.ActionPackagesRefresh: 10 * time.Minute,
 	protocol.ActionStackInstall:    30 * time.Minute,
+	protocol.ActionSiteCreate:      10 * time.Minute,
+	protocol.ActionSiteUpdate:      10 * time.Minute,
+	protocol.ActionSiteDelete:      10 * time.Minute,
 }
 
 type sendFunc func(typ, id string, v any) error
@@ -34,8 +37,30 @@ func runQueuedJob(ctx context.Context, send sendFunc, id string, job protocol.Jo
 		return runStreamed(ctx, send, id, aptCommand(ctx, "update"))
 	case protocol.ActionStackInstall:
 		return runStackInstall(ctx, send, id, job.Params)
+	case protocol.ActionSiteCreate, protocol.ActionSiteUpdate, protocol.ActionSiteDelete:
+		return runSiteJob(ctx, send, id, job)
 	}
 	return protocol.JobResult{Error: "unsupported action " + job.Action}
+}
+
+// runSiteJob validates a site again here, since its fields end up in paths and
+// config files on this server.
+func runSiteJob(ctx context.Context, send sendFunc, id string, job protocol.Job) protocol.JobResult {
+	var s protocol.Site
+	if err := json.Unmarshal(job.Params, &s); err != nil {
+		return protocol.JobResult{Error: "malformed params"}
+	}
+	if err := s.Validate(); err != nil {
+		return protocol.JobResult{Error: err.Error()}
+	}
+	if job.Action == protocol.ActionSiteDelete {
+		return runSteps(ctx, send, id, siteDeleteSteps(s))
+	}
+	inv, err := collectInventory(ctx)
+	if err != nil {
+		return protocol.JobResult{Error: "checking installed packages: " + err.Error()}
+	}
+	return runSteps(ctx, send, id, siteApplySteps(s, inv))
 }
 
 // runStackInstall checks the params again here, since the agent is what

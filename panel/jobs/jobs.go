@@ -32,6 +32,10 @@ type Runner struct {
 	store *store.Store
 	hub   *hub.Hub
 
+	// OnFinish, if set before the runner is used, is called with each job
+	// once its outcome is stored.
+	OnFinish func(ctx context.Context, job store.Job)
+
 	// mu serializes dispatch so each server has at most one running job, and
 	// guards the running map, which is the source of truth for which
 	// connection owns that job.
@@ -43,8 +47,9 @@ func New(st *store.Store, h *hub.Hub) *Runner {
 	return &Runner{store: st, hub: h, running: map[int64]*running{}}
 }
 
-// Enqueue stores a job and starts it if the server is idle and online.
-func (r *Runner) Enqueue(ctx context.Context, userID, serverID int64, action string, params any) (store.Job, error) {
+// Enqueue stores a job and starts it if the server is idle and online. siteID
+// is nil for jobs that aren't about a site.
+func (r *Runner) Enqueue(ctx context.Context, userID, serverID int64, siteID *int64, action string, params any) (store.Job, error) {
 	var raw json.RawMessage
 	if params != nil {
 		b, err := json.Marshal(params)
@@ -53,7 +58,7 @@ func (r *Runner) Enqueue(ctx context.Context, userID, serverID int64, action str
 		}
 		raw = b
 	}
-	job, err := r.store.CreateJob(ctx, userID, serverID, action, raw)
+	job, err := r.store.CreateJob(ctx, userID, serverID, siteID, action, raw)
 	if err != nil {
 		return job, err
 	}
@@ -135,9 +140,29 @@ func (r *Runner) finishLocked(ctx context.Context, serverID int64, run *running,
 	} else if errMsg == "" {
 		errMsg = "the job failed"
 	}
-	if err := r.store.FinishJob(ctx, run.jobID, ok, errMsg); err != nil {
+	job, err := r.store.FinishJob(ctx, run.jobID, ok, errMsg)
+	if err != nil {
 		log.Printf("finishing job %d: %v", run.jobID, err)
+		return
 	}
+	if r.OnFinish != nil {
+		r.OnFinish(ctx, job)
+	}
+}
+
+// FailInterrupted fails the jobs that were running when the panel stopped,
+// since no agent can still be working on them. Call it once at startup.
+func (r *Runner) FailInterrupted(ctx context.Context) error {
+	jobs, err := r.store.FailRunningJobs(ctx, "the panel restarted while the job was running")
+	if err != nil {
+		return err
+	}
+	if r.OnFinish != nil {
+		for _, job := range jobs {
+			r.OnFinish(ctx, job)
+		}
+	}
+	return nil
 }
 
 // dispatchLocked sends the next queued job of an idle, online server.
