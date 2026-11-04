@@ -22,7 +22,7 @@ var agentBinaries = map[string]bool{
 func (a *API) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	installScript.Execute(w, map[string]string{"PanelURL": a.cfg.PublicURL})
+	installScript.Execute(w, map[string]string{"PanelURL": a.cfg.PublicURL, "TLSFingerprint": a.cfg.TLSFingerprint})
 }
 
 func (a *API) handleDownload(w http.ResponseWriter, r *http.Request) {

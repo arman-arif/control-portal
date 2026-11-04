@@ -4,6 +4,7 @@
 set -euo pipefail
 
 PANEL_URL='{{.PanelURL}}'
+TLS_FINGERPRINT='{{.TLSFingerprint}}'
 TOKEN="${1:-}"
 
 fail() { echo "keel: $*" >&2; exit 1; }
@@ -26,7 +27,7 @@ curl -fsSL "$PANEL_URL/downloads/keel-agent-linux-$ARCH" -o "$TMP"
 install -m 0755 "$TMP" /usr/local/bin/keel-agent
 
 echo "keel: linking this server to $PANEL_URL"
-/usr/local/bin/keel-agent register --panel "$PANEL_URL" --token "$TOKEN"
+/usr/local/bin/keel-agent register --panel "$PANEL_URL" --token "$TOKEN" ${TLS_FINGERPRINT:+--fingerprint "$TLS_FINGERPRINT"}
 
 cat > /etc/systemd/system/keel-agent.service <<'UNIT'
 [Unit]
