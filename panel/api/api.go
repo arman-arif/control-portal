@@ -102,6 +102,8 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("PUT /api/sites/{id}/deploy-script", a.requireUser(a.handleSetDeployScript))
 	mux.Handle("POST /api/sites/{id}/deploy", a.requireUser(a.handleDeploy))
 	mux.Handle("GET /api/sites/{id}/deployments", a.requireUser(a.handleListDeployments))
+	mux.Handle("GET /api/sites/{id}/env", a.requireUser(a.handleReadEnv))
+	mux.Handle("PUT /api/sites/{id}/env", a.requireUser(a.handleWriteEnv))
 	// Signed with the site's webhook secret instead of a session.
 	mux.HandleFunc("POST /api/hooks/github/{id}", a.handleGitHubWebhook)
 	mux.Handle("GET /api/github-app", a.requireUser(a.handleGetGitHubApp))

@@ -27,6 +27,7 @@ const siteActionLabels = {
   'site.ssl.issue': 'Get certificate for',
   'site.deploy': 'Deploy',
   'site.deploykey': 'Make deploy key for',
+  'site.env.write': 'Save .env of',
 }
 
 const dbActionLabels = {

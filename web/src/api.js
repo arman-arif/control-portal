@@ -71,6 +71,8 @@ export const api = {
     request('PUT', `/api/sites/${id}/deploy-script`, { script, timeout_minutes: timeoutMinutes }),
   deploy: (id) => request('POST', `/api/sites/${id}/deploy`),
   deployments: (id) => request('GET', `/api/sites/${id}/deployments`),
+  siteEnv: (id) => request('GET', `/api/sites/${id}/env`),
+  saveSiteEnv: (id, content) => request('PUT', `/api/sites/${id}/env`, { content }),
   issueSSL: (id, email) => request('POST', `/api/sites/${id}/ssl`, { email }),
   deleteSite: (id, deleteFiles) => request('DELETE', `/api/sites/${id}${deleteFiles ? '?delete_files=true' : ''}`),
   job: (id, after = 0) => request('GET', `/api/jobs/${id}?after=${after}`),

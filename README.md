@@ -18,6 +18,7 @@ Keel is a self-hosted control panel for your servers: Ploi-style deployments, Cl
 - Databases: create MySQL/MariaDB databases and users, choose which databases each user may use, and show or change a user's password (stored encrypted in the panel)
 - Deploys: deploy a site from GitHub (a private repository through the site's own deploy key, or a public one) by hand or on every push through a signed webhook; an editable deploy script runs as the site user, with live logs and a history
 - GitHub App (optional): create one for your account or organization from Settings, then let sites deploy private repositories through it with short-lived tokens and a single webhook
+- Environment: edit a site's `.env` file from its page; it is read from and saved straight to the server, and Keel keeps no copy
 
 ## Layout
 

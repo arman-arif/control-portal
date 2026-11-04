@@ -303,9 +303,12 @@ func runSession(ctx context.Context, cfg config, client *http.Client) error {
 			log.Printf("job %s: %s %s", id, job.Action, job.Service)
 			var res protocol.JobResult
 			queued := protocol.IsQueuedAction(job.Action)
-			if queued {
+			switch {
+			case queued:
 				res = runQueuedJob(ctx, send, id, job)
-			} else {
+			case protocol.IsEnvAction(job.Action):
+				res = runEnvJob(ctx, job)
+			default:
 				res = runServiceJob(ctx, job)
 			}
 			// Report what changed before the result, so the panel shows the

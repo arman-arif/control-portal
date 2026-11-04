@@ -160,3 +160,16 @@ func (s *Store) JobLogs(ctx context.Context, jobID, after int64, maxBytes int) (
 	}
 	return lines, rows.Err()
 }
+
+// RecordJob stores a job that ran outside the queue, so it shows in the
+// history. Its params must not hold secrets.
+func (s *Store) RecordJob(ctx context.Context, userID, serverID int64, ref JobRef, action string, params json.RawMessage, ok bool, errMsg string) error {
+	status := JobSucceeded
+	if !ok {
+		status = JobFailed
+	}
+	_, err := s.db.Exec(ctx, `INSERT INTO jobs(user_id, server_id, site_id, database_id, database_user_id, action, params, status, error, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())`,
+		userID, serverID, ref.SiteID, ref.DatabaseID, ref.DBUserID, action, params, status, errMsg)
+	return err
+}

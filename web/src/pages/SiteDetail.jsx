@@ -7,6 +7,7 @@ import { Button, Card, ErrorNote, Field, Spinner, StatusDot } from '../component
 import { JobLog, JobStatus, jobLabel } from '../components/Jobs.jsx'
 import { SiteStatus, parseNames, sitePending } from '../components/Sites.jsx'
 import { DeploymentsTab } from '../components/Deploy.jsx'
+import { EnvTab } from '../components/EnvEditor.jsx'
 import { timeAgo } from '../format.js'
 
 export default function SiteDetail() {
@@ -17,7 +18,7 @@ export default function SiteDetail() {
   const { data: stats } = usePolling(() => (site ? api.stats(site.server_id) : Promise.resolve(null)), 5000)
   const [openJob, setOpenJob] = useState(null)
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') === 'deployments' ? 'deployments' : 'overview'
+  const tab = ['deployments', 'environment'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'overview'
 
   // Once a delete has gone through, the site is gone: go back to its server.
   const [lastServer, setLastServer] = useState(null)
@@ -61,6 +62,7 @@ export default function SiteDetail() {
         {[
           ['overview', 'Overview'],
           ['deployments', 'Deployments'],
+          ['environment', 'Environment'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -77,6 +79,7 @@ export default function SiteDetail() {
       </div>
 
       {tab === 'deployments' && <DeploymentsTab site={site} online={!!server?.online} onChange={refresh} />}
+      {tab === 'environment' && server && <EnvTab site={site} online={server.online} />}
       {tab === 'overview' && (
         <>
           <Card>
